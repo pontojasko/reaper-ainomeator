@@ -71,6 +71,36 @@ The pipeline prioritizes short, representative snippets to reduce cost, latency 
 
 ## Installation
 
+### Option A — Install via ReaPack (recommended)
+
+1. Make sure [ReaPack](https://reapack.com/) is installed in Reaper.
+2. Go to **Extensions > ReaPack > Manage repositories**.
+3. Click **Import repositories** (or right-click the list > **Import a repository**).
+4. Paste this URL:
+
+```
+https://raw.githubusercontent.com/pontojasko/ReaperAiNOMEATOR/main/index.xml
+```
+
+5. Click **OK** and then **Synchronize packages**.
+6. Browse to **AiNOMEATOR** in the ReaPack browser and install `AiNOMEATOR.lua` (and optionally `AiNOMEATOR_sws_sync.lua`).
+7. After installation, you still need to set up the Python backend:
+   - Open the REAPER resource path (**Options > Show REAPER resource path**).
+   - Navigate to `Scripts/AiNOMEATOR/`.
+   - Run `setup.bat` to create the venv and `.env` file.
+   - Open `.env` and set your key:
+
+```env
+GEMINI_API_KEY=put_your_key_here
+```
+
+> [!IMPORTANT]
+> ReaPack installs only the Lua scripts. The Python backend (`batch_rename.py`, `classify_track.py`, `audio_utils.py`, etc.) must be present in the same folder. Run `setup.bat` after installing via ReaPack.
+
+The key can also be entered directly in the script's GUI inside Reaper.
+
+### Option B — Manual installation
+
 1. Extract the repository to a local folder, e.g. `C:\reaper-ainomeator`.
 2. Run `setup.bat`.
    - It creates the virtual environment.

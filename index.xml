@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<index version="1" commit="712c1f5e40b400692b5ff14d6997705f08179bb1" name="AiNOMEATOR">
+  <category name="AI">
+    <reapack name="AiNOMEATOR.lua" type="script" desc="AiNOMEATOR — AI track namer, colorer and icon setter for REAPER using Gemini">
+      <metadata>
+        <description><![CDATA[Automatically identifies the primary instrument of each track in Reaper using Gemini, then applies a name, color and icon — with a GUI and background processing that keeps the DAW responsive.
+
+Requirements:
+- Python 3.9+ in PATH
+- A Gemini API key
+- Run setup.bat after installation to create the venv and .env file]]></description>
+        <link rel="website">https://github.com/pontojasko/ReaperAiNOMEATOR</link>
+        <link rel="donation">https://github.com/pontojasko/ReaperAiNOMEATOR</link>
+      </metadata>
+      <version name="1.0" author="pontojasko" time="2026-07-10T00:00:00Z">
+        <changelog><![CDATA[Initial release: AI track naming, coloring and icon setting via Gemini API.]]></changelog>
+        <source main="main">https://github.com/pontojasko/ReaperAiNOMEATOR/raw/712c1f5e40b400692b5ff14d6997705f08179bb1/AiNOMEATOR.lua</source>
+      </version>
+    </reapack>
+    <reapack name="AiNOMEATOR_sws_sync.lua" type="script" desc="AiNOMEATOR SWS Color Sync — sync the AI color palette with SWS Auto Color">
+      <metadata>
+        <description><![CDATA[Syncs the color palette from reaper_ai_track_namer_colors.ini into Reaper's sws-autocoloricon.ini. Run this after AiNOMEATOR to make SWS Auto Color use the same palette.]]></description>
+        <link rel="website">https://github.com/pontojasko/ReaperAiNOMEATOR</link>
+      </metadata>
+      <version name="1.0" author="pontojasko" time="2026-07-10T00:00:00Z">
+        <changelog><![CDATA[Initial release: SWS Auto Color synchronization.]]></changelog>
+        <source main="main">https://github.com/pontojasko/ReaperAiNOMEATOR/raw/712c1f5e40b400692b5ff14d6997705f08179bb1/AiNOMEATOR_sws_sync.lua</source>
+      </version>
+    </reapack>
+  </category>
+</index>
