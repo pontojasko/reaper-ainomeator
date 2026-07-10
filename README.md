@@ -213,5 +213,3 @@ If Reaper reports no result, check in this order:
 3. Load `AiNOMEATOR.lua` in Reaper and test on a small session.
 
 ---
-
-[Portuguese version](README.md)
