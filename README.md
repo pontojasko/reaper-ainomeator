@@ -6,6 +6,8 @@
 
 Automatically identifies the primary instrument of each track in Reaper using Gemini, then applies a name, color and icon — with a GUI and background processing that keeps the DAW responsive.
 
+> [!CAUTION]
+> **Experimental project.** This is a work-in-progress with plenty of bugs and rough edges. The current default model (Gemini Flash-Lite) frequently confuses instruments — expect misclassifications, especially with similar-sounding tracks. You can try to improve accuracy by editing the prompt in `analysis_prompt.txt` and selecting a better model via `--models` or the GUI settings.
 
 ## Overview
 
