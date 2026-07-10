@@ -148,8 +148,8 @@ After reading the TSV, the script:
 
 ## Analysis modes
 
-- **Fast mode**: combines three energy peaks into a lightweight MP3 at 128 kbps.
-- **Detailed mode**: removes silences and sends a more faithful WAV.
+- **Fast mode**: combines three energy peaks (removes silences) into a lightweight MP3 at 128 kbps.
+- **Detailed mode**: sends a more faithful WAV without removing silences.
 
 ## Color customization
 

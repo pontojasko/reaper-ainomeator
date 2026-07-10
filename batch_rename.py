@@ -58,6 +58,17 @@ from google.genai import types
 
 from audio_utils import extract_best_segment, downmix_resample, extract_three_peaks, convert_to_mp3_128k, remove_all_silence
 from classify_track import classify_audio_bytes, MODELOS_FALLBACK
+from yamnet_classify import classify_with_yamnet
+from essentia_classify import classify_with_essentia
+from panns_classify import classify_with_panns
+
+# Backends locais (sem API/chave) disponiveis, por nome -> funcao de classificacao.
+# Todos tem a mesma assinatura: classify_fn(audio_path, output_language) -> dict
+LOCAL_BACKENDS = {
+    "yamnet": classify_with_yamnet,
+    "essentia": classify_with_essentia,
+    "panns": classify_with_panns,
+}
 
 
 class SharedModelList:
@@ -99,7 +110,56 @@ def _sanitize(text):
     return str(text).replace("\t", " ").replace("\n", " ").replace("\r", " ").strip()
 
 
-def process_one(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language):
+def _process_one_local(idx, audio_path, start_sec, dur_sec, segment_seconds, quality, output_language, backend_name):
+    """Processa UMA track usando um backend local (YamNet/Essentia/PANNs), sem API do Gemini."""
+    classify_fn = LOCAL_BACKENDS[backend_name]
+    tmp_seg_path = None
+    try:
+        if not audio_path or not os.path.isfile(audio_path):
+            return idx, {"error": f"arquivo nao encontrado: {audio_path}"}
+
+        search_start = start_sec if start_sec is not None and start_sec >= 0 else None
+        search_dur = dur_sec if dur_sec is not None and dur_sec > 0 else None
+
+        if quality == "alta":
+            # Análise detalhada para local: analisa o arquivo/item inteiro em vez de apenas um trecho de 8s
+            if search_start is None and search_dur is None:
+                result = classify_fn(audio_path, output_language=output_language)
+            else:
+                tmp_seg_fd, tmp_seg_path = tempfile.mkstemp(suffix=".wav", prefix="ai_namer_seg_")
+                os.close(tmp_seg_fd)
+                extract_best_segment(
+                    audio_path, tmp_seg_path, segment_seconds=search_dur,
+                    search_start_seconds=search_start,
+                    search_duration_seconds=search_dur,
+                )
+                result = classify_fn(tmp_seg_path, output_language=output_language)
+        else:
+            # Análise rápida: extrai o trecho de 8s de maior energia
+            tmp_seg_fd, tmp_seg_path = tempfile.mkstemp(suffix=".wav", prefix="ai_namer_seg_")
+            os.close(tmp_seg_fd)
+            extract_best_segment(
+                audio_path, tmp_seg_path, segment_seconds=segment_seconds,
+                search_start_seconds=search_start,
+                search_duration_seconds=search_dur,
+            )
+            result = classify_fn(tmp_seg_path, output_language=output_language)
+
+        result["_model_usado"] = backend_name
+        return idx, result
+    except Exception as e:
+        return idx, {"error": f"{type(e).__name__}: {e}"}
+    finally:
+        if tmp_seg_path and os.path.isfile(tmp_seg_path):
+            try:
+                os.remove(tmp_seg_path)
+            except OSError:
+                pass
+
+
+def process_one(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend="gemini"):
+    if backend in LOCAL_BACKENDS:
+        return _process_one_local(idx, audio_path, start_sec, dur_sec, segment_seconds, quality, output_language, backend)
     if not api_available:
         return idx, {"category": "outro", "instrument": "Audio", "confidence": 0.0, "_model_usado": "fallback_universal"}
 
@@ -120,8 +180,12 @@ def process_one(client, idx, audio_path, start_sec, dur_sec, shared_models, segm
         search_dur = dur_sec if dur_sec is not None and dur_sec > 0 else None
 
         if quality == "alta":
-            # Análise detalhada: remove todos os silêncios, mantendo a qualidade original (wav)
-            remove_all_silence(audio_path, tmp_seg_path)
+            # Análise detalhada: sem remover silêncios, mantendo a qualidade original (wav)
+            extract_best_segment(
+                audio_path, tmp_seg_path, segment_seconds=segment_seconds,
+                search_start_seconds=search_start,
+                search_duration_seconds=search_dur,
+            )
             with open(tmp_seg_path, "rb") as f:
                 audio_bytes = f.read()
             mime_type = "audio/wav"
@@ -293,35 +357,52 @@ def main():
                          help="Qualidade de analise: 'normal' ou 'alta'")
     parser.add_argument("--output-language", choices=["pt", "en"], default="pt",
                          help="idioma do campo instrument: pt ou en (padrao: pt)")
+    parser.add_argument("--backend", choices=["gemini", "yamnet", "essentia", "panns"], default="gemini",
+                         help="backend de classificacao: gemini (API, padrao) ou yamnet/essentia/panns (locais, sem API key)")
+    parser.add_argument("--panns-threads", type=int, default=None,
+                         help="threads internas do PyTorch (PANNs) por worker")
     args = parser.parse_args()
 
     load_dotenv()
+    if args.panns_threads is not None and args.panns_threads > 0:
+        os.environ["PANNS_THREADS"] = str(args.panns_threads)
     api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        print("ERRO: GEMINI_API_KEY nao encontrada (crie/edite o .env nesta pasta).")
-        sys.exit(1)
+
+    use_local_backend = (args.backend in LOCAL_BACKENDS)
+
+    if not use_local_backend:
+        if not api_key:
+            print("ERRO: GEMINI_API_KEY nao encontrada (crie/edite o .env nesta pasta).")
+            print("Dica: use --backend yamnet, --backend essentia ou --backend panns para classificacao local sem API key.")
+            sys.exit(1)
+        client = genai.Client(api_key=api_key)
+    else:
+        client = None
+        print(f"[batch_rename] Backend: {args.backend} (local, sem API)")
 
     if not os.path.isfile(args.manifest_path):
         print(f"ERRO: manifest nao encontrado: {args.manifest_path}")
         sys.exit(1)
 
-    client = genai.Client(api_key=api_key)
-    models = args.models.split(",") if args.models else None
-    initial_models = models if models else MODELOS_FALLBACK
+    if not use_local_backend:
+        client = genai.Client(api_key=api_key)
+        models = args.models.split(",") if args.models else None
+        initial_models = models if models else MODELOS_FALLBACK
 
-    api_available, working_models = check_api_availability(client, initial_models)
-    if not api_available:
-        print("\n[AVISO] Initial check failed. Activating universal fallback (no AI) for all steps.")
-    
-    # Atualiza a lista de modelos para começar do que funcionou
-    initial_models = working_models
+        api_available, working_models = check_api_availability(client, initial_models)
+        if not api_available:
+            print("\n[AVISO] Initial check failed. Activating universal fallback (no AI) for all steps.")
+        initial_models = working_models
+    else:
+        api_available = True  # backends locais sao sempre "available" (rodam na maquina)
+        initial_models = [args.backend]
 
-    # Se o prompt de cores foi informado, gera a paleta antes do processamento das faixas
+        # Se o prompt de cores foi informado, gera a paleta antes do processamento das faixas
     if args.color_prompt and args.config_path:
-        if api_available:
+        if api_available and not use_local_backend:
             handle_color_generation(client, initial_models, args.color_prompt, args.config_path)
         else:
-            print(f"\n[batch_rename] Pulando geração de cores customizada (API indisponível). Usando paleta existente.")
+            print(f"\n[batch_rename] Pulando geracao de cores customizada (API indisponivel ou backend local). Usando paleta existente.")
 
     entries = read_manifest(args.manifest_path)
     total = len(entries)
@@ -343,7 +424,7 @@ def main():
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         futures = {
-            pool.submit(process_one, client, idx, path, start, dur, shared_models, args.segment_seconds, args.quality, api_available, args.output_language): idx
+            pool.submit(process_one, client, idx, path, start, dur, shared_models, args.segment_seconds, args.quality, api_available, args.output_language, args.backend): idx
             for idx, path, start, dur in entries
         }
         for future in as_completed(futures):

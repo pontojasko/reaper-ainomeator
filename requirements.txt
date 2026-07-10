@@ -2,3 +2,22 @@ google-genai>=0.3.0,<2.0.0
 python-dotenv>=1.0.0,<2.0.0
 numpy>=1.24.0,<3.0.0
 soundfile>=0.12.0,<1.0.0
+
+# ----------------------------------------------------------------------
+# Dependencias OPCIONAIS dos backends locais (sem API/chave). So instale
+# os que voce quer testar - nao sao instaladas por padrao pelo setup.bat
+# porque sao pesadas (centenas de MB) e nao sao usadas no fluxo padrao
+# (Gemini).
+#
+# YamNet (leve, ~4MB de modelo):
+#   pip install tensorflow
+#
+# PANNs / Cnn14 (modelo maior, ~300MB, baixado na 1a execucao):
+#   pip install panns_inference torch
+#
+# Essentia (embeddings + classificador de instrumentos do MTG-Jamendo):
+#   pip install essentia-tensorflow
+#   ATENCAO: o Essentia NAO tem wheel Python oficial para Windows nativo
+#   (so Linux/macOS). No Windows, use WSL para testar esse backend, ou
+#   pule-o e use YamNet/PANNs. Veja https://essentia.upf.edu/installing.html
+# ----------------------------------------------------------------------

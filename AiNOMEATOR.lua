@@ -30,13 +30,20 @@ local gui_state = "config"
 local lang = reaper.GetExtState("AiNOMEATOR", "language")
 if lang == "" then lang = "en" end -- default to English
 
+local saved_panns_threads = reaper.GetExtState("AiNOMEATOR", "panns_threads")
+if saved_panns_threads == "" then saved_panns_threads = "1" end
+
+local backend = reaper.GetExtState("AiNOMEATOR", "backend")
+if backend == "" then backend = "gemini" end
+
 local strings = {
   en = {
     only_selected = "Analyze selected tracks only",
     analysis_mode = "Analysis Mode:",
-    mode_fast = "Fast (combines 3 audio peaks into 128kbps MP3)",
-    mode_detailed = "Detailed (removes silences, sends original WAV)",
-    thread_label = "Parallel threads (1-20):",
+    mode_fast = "Fast (uses short 8-12s audio segments)",
+    mode_detailed = "Detailed (analyzes full WAV / entire item duration)",
+    thread_label = "Parallel tracks (1-20):",
+    local_thread_label = "Local threads (1-16):",
     prompt_label = "Color prompt (empty = use colors.ini):",
     prompt_placeholder = "Ex: all in green, vintage autumn, cyberpunk neon",
     api_label = "Gemini API Key:",
@@ -74,13 +81,19 @@ local strings = {
     msg_api_error = "[ERROR] batch_rename.py did not generate the result file.",
     msg_api_causes = "Possible causes:\n  - setup.bat has not been run in this folder\n  - GEMINI_API_KEY is not configured in .env\n  - Python was not found in PATH",
     msg_api_causes_mb = "Failed to run AI. Possible causes:\n- setup.bat has not been run in this folder (venv/.env missing)\n- GEMINI_API_KEY not configured in .env\n- Python not found\n\nSee the Reaper console for details.",
+    backend_label = "Analysis Backend:",
+    backend_gemini = "Gemini (cloud, API key required)",
+    backend_yamnet = "YamNet (local, no API key)",
+    backend_essentia = "Essentia (local, no API key)",
+    backend_panns = "PANNs (local, no API key)",
   },
   pt = {
     only_selected = "Analisar apenas faixas selecionadas",
     analysis_mode = "Modo de Análise:",
-    mode_fast = "Rápida (combina 3 picos de áudio em MP3 128kbps)",
-    mode_detailed = "Detalhada (remove silêncio, manda WAV original)",
-    thread_label = "Threads em paralelo (1-20):",
+    mode_fast = "Rápida (analisa trechos curtos de 8-12s)",
+    mode_detailed = "Detalhada (analisa WAV original / faixa completa)",
+    thread_label = "Faixas/CPU (1-20):",
+    local_thread_label = "Threads locais (1-16):",
     prompt_label = "Prompt de cores (vazio = usar cores.ini):",
     prompt_placeholder = "Ex: tudo em verde, vintage outono, cyberpunk neon",
     api_label = "Chave API Gemini:",
@@ -118,6 +131,11 @@ local strings = {
     msg_api_error = "[ERRO] batch_rename.py nao gerou o arquivo de resultado.",
     msg_api_causes = "Possiveis causas:\n  - setup.bat ainda nao foi rodado nesta pasta (venv/.env faltando)\n  - GEMINI_API_KEY nao configurada no .env\n  - Python nao encontrado no PATH",
     msg_api_causes_mb = "Falha ao rodar a IA. Possiveis causas:\n- setup.bat ainda nao foi rodado nesta pasta (venv/.env faltando)\n- GEMINI_API_KEY nao configurada no .env\n- Python nao encontrado\n\nVeja o console do Reaper para detalhes completos.",
+    backend_label = "Backend de Analise:",
+    backend_gemini = "Gemini (nuvem, exige chave de API)",
+    backend_yamnet = "YamNet (local, sem chave de API)",
+    backend_essentia = "Essentia (local, sem chave de API)",
+    backend_panns = "PANNs (local, sem chave de API)",
   }
 }
 
@@ -655,9 +673,10 @@ local function start_analysis()
   log(string.format("Starting analysis: %d track(s), %d thread(s)...", n_jobs, workers))
   log("Progress will appear below in real time.\n")
 
+  local local_threads = tonumber(inputs[4].val) or 1
   local python_args = string.format(
-    '-u "%s" "%s" "%s" --workers %d --segment-seconds %.2f --done-flag "%s" --config-path "%s"',
-    batch_script, manifest_path, result_path, workers, segment_seconds, done_path, config_colors_file
+    '-u "%s" "%s" "%s" --workers %d --segment-seconds %.2f --done-flag "%s" --config-path "%s" --panns-threads %d',
+    batch_script, manifest_path, result_path, workers, segment_seconds, done_path, config_colors_file, local_threads
   )
 
   if analysis_mode == "detailed" then
@@ -667,6 +686,7 @@ local function start_analysis()
   end
 
   python_args = python_args .. ' --output-language ' .. sanitize_shell_arg(lang)
+  python_args = python_args .. ' --backend ' .. sanitize_shell_arg(backend)
 
   if color_prompt ~= "" then
     local escaped_prompt = sanitize_shell_arg(color_prompt)
@@ -879,9 +899,10 @@ analysis_mode = "detailed"
 local show_api_key = false
 
 local inputs = {
-  { label = t("thread_label"), val = "5", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 250, w = 260, h = 30 },
+  { label = t("thread_label"), val = "5", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 250, w = 110, h = 30 },
   { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 315, w = 260, h = 30 },
-  { label = t("api_label"), val = saved_api_key, placeholder = t("api_placeholder"), is_numeric = false, is_password = true, limit = 200, x = 30, y = 380, w = 170, h = 30 }
+  { label = t("api_label"), val = saved_api_key, placeholder = t("api_placeholder"), is_numeric = false, is_password = true, limit = 200, x = 30, y = 380, w = 170, h = 30 },
+  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 180, y = 250, w = 110, h = 30 }
 }
 
 local function refresh_language_labels()
@@ -890,6 +911,7 @@ local function refresh_language_labels()
   inputs[2].placeholder = t("prompt_placeholder")
   inputs[3].label = t("api_label")
   inputs[3].placeholder = t("api_placeholder")
+  inputs[4].label = t("local_thread_label")
 end
 
 local function set_language(new_lang)
@@ -914,6 +936,18 @@ local function sanitize_thread_input(value)
   local threads = tonumber(digits) or 5
   if threads < 1 then threads = 1 end
   if threads > 20 then threads = 20 end
+  return tostring(threads)
+end
+
+local function sanitize_local_thread_input(value)
+  local digits = tostring(value or ""):gsub("%D", "")
+  if digits == "" then
+    return ""
+  end
+
+  local threads = tonumber(digits) or 1
+  if threads < 1 then threads = 1 end
+  if threads > 16 then threads = 16 end
   return tostring(threads)
 end
 
@@ -1142,6 +1176,42 @@ local function draw_gui()
     gfx.x, gfx.y = cb_x + 28, r2_y + 1
     gfx.drawstr(t("mode_detailed"))
 
+    -- Linha divisória
+    gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+    gfx.line(30, 222, 290, 222)
+
+    -- Backend de Análise Label
+    gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
+    gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
+    gfx.x, gfx.y = 30, 230
+    gfx.drawstr(t("backend_label"))
+    gfx.setfont(1, "Segoe UI", 11)
+
+    local backend_options = {
+      { key = "gemini",   label = t("backend_gemini") },
+      { key = "yamnet",   label = t("backend_yamnet") },
+      { key = "essentia", label = t("backend_essentia") },
+      { key = "panns",    label = t("backend_panns") },
+    }
+    for i, opt in ipairs(backend_options) do
+      local opt_y = 252 + (i - 1) * 25
+      gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+      gfx.rect(cb_x, opt_y, cb_size, cb_size, 1)
+      gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+      gfx.rect(cb_x, opt_y, cb_size, cb_size, 0)
+      if backend == opt.key then
+        gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+        gfx.rect(cb_x + 3, opt_y + 3, cb_size - 6, cb_size - 6, 1)
+      end
+      gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
+      gfx.x, gfx.y = cb_x + 28, opt_y + 1
+      gfx.drawstr(opt.label)
+    end
+
+    -- Linha divisória
+    gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+    gfx.line(30, 350, 290, 350)
+
     -- Campos de Texto
     for i, inp in ipairs(inputs) do
       -- Label
@@ -1307,7 +1377,7 @@ local function draw_gui()
     gfx.drawstr(dots)
 
     -- Caixa de Logs
-    local box_x, box_y, box_w, box_h = 30, 135, 260, 335
+    local box_x, box_y, box_w, box_h = 30, 135, 260, 455
     gfx.r, gfx.g, gfx.b = 0.08, 0.08, 0.08
     gfx.rect(box_x, box_y, box_w, box_h, 1)
     gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
@@ -1329,7 +1399,7 @@ local function draw_gui()
     end
 
     -- Caixa de Logs
-    local box_x, box_y, box_w, box_h = 30, 135, 260, 335
+    local box_x, box_y, box_w, box_h = 30, 135, 260, 455
     gfx.r, gfx.g, gfx.b = 0.08, 0.08, 0.08
     gfx.rect(box_x, box_y, box_w, box_h, 1)
     gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
@@ -1339,7 +1409,7 @@ local function draw_gui()
     draw_copy_button()
 
     -- Botao Fechar
-    local btn_x, btn_y, btn_w, btn_h = 30, 485, 260, 36
+    local btn_x, btn_y, btn_w, btn_h = 30, 605, 260, 36
     local mouse_over_close = gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h
     if mouse_over_close then
       gfx.r, gfx.g, gfx.b = 0.65, 0.1, 0.15
@@ -1395,6 +1465,23 @@ local function update_gui()
         return "redraw"
       end
 
+      -- Clique nos botões de Rádio do Backend
+      local cb_x, cb_size = 30, 18
+      local backend_options = {
+        { key = "gemini",   label = t("backend_gemini") },
+        { key = "yamnet",   label = t("backend_yamnet") },
+        { key = "essentia", label = t("backend_essentia") },
+        { key = "panns",    label = t("backend_panns") },
+      }
+      for i, opt in ipairs(backend_options) do
+        local opt_y = 252 + (i - 1) * 25
+        if gfx.mouse_x >= cb_x and gfx.mouse_x <= cb_x + cb_size and gfx.mouse_y >= opt_y and gfx.mouse_y <= opt_y + cb_size then
+          backend = opt.key
+          reaper.SetExtState("AiNOMEATOR", "backend", backend, true)
+          return "redraw"
+        end
+      end
+
       -- Clique nos campos de texto
       local clicked_input = false
       for i, inp in ipairs(inputs) do
@@ -1409,7 +1496,7 @@ local function update_gui()
       end
 
       -- Clique no botao Mostrar/Ocultar
-      local eye_x, eye_y, eye_w, eye_h = 210, 380, 80, 30
+      local eye_x, eye_y, eye_w, eye_h = 210, 500, 80, 30
       local eye_half_w = eye_w / 2
       if gfx.mouse_x >= eye_x and gfx.mouse_x <= eye_x + eye_half_w and gfx.mouse_y >= eye_y and gfx.mouse_y <= eye_y + eye_h then
         show_api_key = not show_api_key
@@ -1425,7 +1512,7 @@ local function update_gui()
       end
 
       -- Clique no botao ANALISAR
-      local btn_x, btn_y, btn_w, btn_h = 30, 442, 260, 36
+      local btn_x, btn_y, btn_w, btn_h = 30, 562, 260, 36
       if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
         return "run"
       end
@@ -1434,7 +1521,7 @@ local function update_gui()
       gfx.setfont(1, "Segoe UI", 10)
       local cr_w, cr_h = gfx.measurestr("by jasko")
       local cr_x = (gfx.w - cr_w) / 2
-      local cr_y = 492
+      local cr_y = 612
       if gfx.mouse_x >= cr_x and gfx.mouse_x <= cr_x + cr_w and gfx.mouse_y >= cr_y and gfx.mouse_y <= cr_y + cr_h then
         open_url("https://jasko.dev")
         return "redraw"
@@ -1477,7 +1564,7 @@ local function update_gui()
         end
       end
       -- Clique no botao FECHAR
-      local btn_x, btn_y, btn_w, btn_h = 30, 485, 260, 36
+      local btn_x, btn_y, btn_w, btn_h = 30, 605, 260, 36
       if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
         return "close"
       end
@@ -1548,8 +1635,8 @@ local function run_gui_loop()
   end
 
   -- Travar o resize
-  if gfx.w ~= 320 or gfx.h ~= 590 then
-    gfx.init("AiNOMEATOR", 320, 590, 0, gfx.x, gfx.y)
+  if gfx.w ~= 320 or gfx.h ~= 710 then
+    gfx.init("AiNOMEATOR", 320, 710, 0, gfx.x, gfx.y)
   end
 
   draw_gui()
@@ -1562,6 +1649,12 @@ local function run_gui_loop()
     if workers < 1 then workers = 1
     elseif workers > 20 then workers = 20 end
     inputs[1].val = tostring(workers)
+
+    local local_threads = tonumber(sanitize_local_thread_input(inputs[4].val)) or 1
+    if local_threads < 1 then local_threads = 1
+    elseif local_threads > 16 then local_threads = 16 end
+    inputs[4].val = tostring(local_threads)
+    reaper.SetExtState("AiNOMEATOR", "panns_threads", inputs[4].val, true)
 
     color_prompt = trim(inputs[2].val)
     entered_key = trim(inputs[3].val)
@@ -1591,7 +1684,7 @@ local function run_gui_loop()
 end
 
 -- Inicializa a tela grafica customizada centralizada na tela
-local win_w, win_h = 320, 558
+local win_w, win_h = 320, 710
 local win_x, win_y = 150, 150 -- Fallback padrão se my_getViewport não estiver disponível
 
 if reaper.my_getViewport then
