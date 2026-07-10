@@ -114,56 +114,6 @@ GEMINI_API_KEY=put_your_key_here
 
 The key can also be entered directly in the script's GUI inside Reaper.
 
-## Quick start
-
-### 1. Test a single audio file
-
-Use `test_single.bat` with a short audio file, or run directly:
-
-```bash
-python classify_track.py "C:\path\to\audio.wav"
-```
-
-By default the script looks for an 8-second segment of highest energy in the file, converts that segment into a lightweight version and only then sends the bytes to Gemini.
-
-Useful options:
-
-- `--full`: analyze the entire file (usually only for comparison).
-- `--segment-seconds N`: set the length of the analyzed segment.
-- `--keep-segment`: keep temporary WAVs for inspection.
-- `--models a,b,c`: set the model fallback order.
-- `--output-language pt|en`: language for the instrument name.
-
-### 2. Validate in batch
-
-Put samples in `samples/`, fill the `GABARITO` in `test_batch.py` and run `test_batch.bat`.
-
-This step shows whether the prompt is consistent. If accuracy is poor, adjust the prompt in `classify_track.py` or the optional `analysis_prompt.txt` file.
-
-### 3. Run inside Reaper
-
-In Reaper, load `AiNOMEATOR.lua` as a ReaScript:
-
-1. `Actions > Show action list...`
-2. `New action... > Load ReaScript...`
-3. Select `AiNOMEATOR.lua`
-
-The GUI provides:
-
-- Analyze all tracks or only the selected ones.
-- Fast mode (3 audio peaks into 128 kbps MP3) or detailed mode (removes silences, sends WAV).
-- Analysis duration per track (default: 8 seconds).
-- Parallel threads (default: 5).
-- Custom color prompt (generates palette via AI).
-- Gemini API key (saved to `.env`).
-- English or Portuguese interface.
-
-The script prefers the venv Python first. If the venv is missing, it falls back to the system Python and shows warnings in the Reaper console.
-
-### 4. Sync colors with SWS (optional)
-
-Run `AiNOMEATOR_sws_sync.lua` in Reaper (or `sync_sws_colors.bat` outside the DAW) to copy the palette from `reaper_ai_track_namer_colors.ini` into Reaper's `sws-autocoloricon.ini`.
-
 ## How it works
 
 ### Step 1: Reaper gathers context
