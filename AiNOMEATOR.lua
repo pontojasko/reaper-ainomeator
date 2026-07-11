@@ -86,6 +86,7 @@ local strings = {
     backend_yamnet = "YamNet (local, no API key)",
     backend_essentia = "Essentia (local, no API key)",
     backend_panns = "PANNs (local, no API key)",
+    backend_hybrid_heuristic = "Hybrid Heuristic (PANNs + Gemini)",
   },
   pt = {
     only_selected = "Analisar apenas faixas selecionadas",
@@ -136,6 +137,7 @@ local strings = {
     backend_yamnet = "YamNet (local, sem chave de API)",
     backend_essentia = "Essentia (local, sem chave de API)",
     backend_panns = "PANNs (local, sem chave de API)",
+    backend_hybrid_heuristic = "Híbrido Heurística (PANNs + Gemini)",
   }
 }
 
@@ -871,6 +873,45 @@ end
 -- ==================================================================
 
 
+local function in_rect(x, y, w, h)
+  return gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h
+end
+
+local layout = {
+  -- Idiomas
+  lang_en = { x = 241, y = 12, w = 32, h = 16, radio_x = 246, radio_y = 20, radio_r = 3 },
+  lang_pt = { x = 276, y = 12, w = 36, h = 16, radio_x = 282, radio_y = 20, radio_r = 3 },
+  
+  -- Checkbox
+  only_selected = { x = 30, y = 110, w = 260, h = 20, cb_x = 30, cb_y = 115, cb_size = 18 },
+  
+  -- Rádios do modo de análise
+  mode_fast = { x = 30, y = 165, w = 260, h = 20, cb_x = 30, cb_y = 170, cb_size = 18 },
+  mode_detailed = { x = 30, y = 190, w = 260, h = 20, cb_x = 30, cb_y = 195, cb_size = 18 },
+  
+  -- Rádios do backend de análise
+  backend_label_y = 230,
+  backend_start_y = 252,
+  backend_spacing_y = 25,
+  backend_cb_x = 30,
+  backend_cb_size = 18,
+  
+  -- Botões de API (deslocados +50px)
+  api_eye = { x = 210, y = 520, w = 40, h = 30 },
+  api_save = { x = 250, y = 520, w = 40, h = 30 },
+  
+  -- Outros Botões (deslocados +50px)
+  copy_logs = { x = 190, y = 105, w = 100, h = 24 },
+  analyze = { x = 30, y = 585, w = 260, h = 36 },
+  close = { x = 30, y = 655, w = 260, h = 36 }
+}
+
+local backend_options = {
+  { key = "gemini",             label_key = "backend_gemini" },
+  { key = "panns",              label_key = "backend_panns" },
+  { key = "hybrid_heuristic",   label_key = "backend_hybrid_heuristic" },
+}
+
 local function open_url(url)
   local os_name = reaper.GetOS()
   if os_name:find("Win") then
@@ -900,10 +941,10 @@ analysis_mode = "detailed"
 local show_api_key = false
 
 inputs = {
-  { label = t("thread_label"), val = "5", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 340, w = 110, h = 30 },
-  { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 405, w = 260, h = 30 },
-  { label = t("api_label"), val = saved_api_key, placeholder = t("api_placeholder"), is_numeric = false, is_password = true, limit = 200, x = 30, y = 470, w = 170, h = 30 },
-  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 180, y = 340, w = 110, h = 30 }
+  { label = t("thread_label"), val = "5", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 390, w = 110, h = 30 },
+  { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 455, w = 260, h = 30 },
+  { label = t("api_label"), val = saved_api_key, placeholder = t("api_placeholder"), is_numeric = false, is_password = true, limit = 200, x = 30, y = 520, w = 170, h = 30 },
+  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 180, y = 390, w = 110, h = 30 }
 }
 
 local function refresh_language_labels()
@@ -1009,22 +1050,22 @@ local function draw_logs(x, y, w, h)
 end
 
 local function draw_copy_button()
-  local copy_x, copy_y, copy_w, copy_h = 190, 105, 100, 24
-  local mouse_over_copy = gfx.mouse_x >= copy_x and gfx.mouse_x <= copy_x + copy_w and gfx.mouse_y >= copy_y and gfx.mouse_y <= copy_y + copy_h
+  local btn = layout.copy_logs
+  local mouse_over_copy = in_rect(btn.x, btn.y, btn.w, btn.h)
   if mouse_over_copy then
     gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
   else
     gfx.r, gfx.g, gfx.b = 0.18, 0.18, 0.18
   end
-  gfx.rect(copy_x, copy_y, copy_w, copy_h, 1)
+  gfx.rect(btn.x, btn.y, btn.w, btn.h, 1)
   gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-  gfx.rect(copy_x, copy_y, copy_w, copy_h, 0)
+  gfx.rect(btn.x, btn.y, btn.w, btn.h, 0)
   gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
   gfx.setfont(1, "Segoe UI", 10)
   local c_text = t("btn_copy_logs")
   local c_tw, c_th = gfx.measurestr(c_text)
-  gfx.x = copy_x + (copy_w - c_tw)/2
-  gfx.y = copy_y + (copy_h - c_th)/2
+  gfx.x = btn.x + (btn.w - c_tw)/2
+  gfx.y = btn.y + (btn.h - c_th)/2
   gfx.drawstr(c_text)
 end
 
@@ -1102,40 +1143,39 @@ local function draw_gui()
 
   if gui_state == "config" then
     -- Radio de idioma no topo
-    local radio_y = 20
-    local en_x, pt_x = 246, 282
-    local radio_r = 3
+    local en = layout.lang_en
+    local pt = layout.lang_pt
     gfx.setfont(1, "Segoe UI", 10)
     gfx.r, gfx.g, gfx.b = 0.78, 0.78, 0.78
-    gfx.x, gfx.y = en_x + 12, radio_y - 7
+    gfx.x, gfx.y = en.radio_x + 12, en.radio_y - 7
     gfx.drawstr("EN")
-    gfx.x, gfx.y = pt_x + 12, radio_y - 7
+    gfx.x, gfx.y = pt.radio_x + 12, pt.radio_y - 7
     gfx.drawstr("PT")
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.circle(en_x, radio_y, radio_r, 0, 1)
-    gfx.circle(pt_x, radio_y, radio_r, 0, 1)
+    gfx.circle(en.radio_x, en.radio_y, en.radio_r, 0, 1)
+    gfx.circle(pt.radio_x, pt.radio_y, pt.radio_r, 0, 1)
     if lang == "en" then
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.circle(en_x, radio_y, radio_r - 2, 1, 1)
+      gfx.circle(en.radio_x, en.radio_y, en.radio_r - 2, 1, 1)
     else
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.circle(pt_x, radio_y, radio_r - 2, 1, 1)
+      gfx.circle(pt.radio_x, pt.radio_y, pt.radio_r - 2, 1, 1)
     end
 
     -- Checkbox "Apenas faixas selecionadas"
-    local cb_x, cb_y, cb_size = 30, 115, 18
+    local opt = layout.only_selected
     gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-    gfx.rect(cb_x, cb_y, cb_size, cb_size, 1) -- fill
+    gfx.rect(opt.cb_x, opt.cb_y, opt.cb_size, opt.cb_size, 1) -- fill
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(cb_x, cb_y, cb_size, cb_size, 0) -- border
+    gfx.rect(opt.cb_x, opt.cb_y, opt.cb_size, opt.cb_size, 0) -- border
     
     if only_selected then
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.rect(cb_x + 3, cb_y + 3, cb_size - 6, cb_size - 6, 1)
+      gfx.rect(opt.cb_x + 3, opt.cb_y + 3, opt.cb_size - 6, opt.cb_size - 6, 1)
     end
 
     gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-    gfx.x, gfx.y = cb_x + 28, cb_y + 1
+    gfx.x, gfx.y = opt.cb_x + 28, opt.cb_y + 1
     gfx.drawstr(t("only_selected"))
     
     -- Linha divisória
@@ -1150,31 +1190,31 @@ local function draw_gui()
     gfx.setfont(1, "Segoe UI", 11)
 
     -- Radio 1: "Análise rápida de pequena amostra"
-    local r1_y = 170
+    local r1 = layout.mode_fast
     gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-    gfx.rect(cb_x, r1_y, cb_size, cb_size, 1)
+    gfx.rect(r1.cb_x, r1.cb_y, r1.cb_size, r1.cb_size, 1)
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(cb_x, r1_y, cb_size, cb_size, 0)
+    gfx.rect(r1.cb_x, r1.cb_y, r1.cb_size, r1.cb_size, 0)
     if analysis_mode == "fast" then
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.rect(cb_x + 3, r1_y + 3, cb_size - 6, cb_size - 6, 1)
+      gfx.rect(r1.cb_x + 3, r1.cb_y + 3, r1.cb_size - 6, r1.cb_size - 6, 1)
     end
     gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-    gfx.x, gfx.y = cb_x + 28, r1_y + 1
+    gfx.x, gfx.y = r1.cb_x + 28, r1.cb_y + 1
     gfx.drawstr(t("mode_fast"))
 
     -- Radio 2: "Análise detalhada"
-    local r2_y = 195
+    local r2 = layout.mode_detailed
     gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-    gfx.rect(cb_x, r2_y, cb_size, cb_size, 1)
+    gfx.rect(r2.cb_x, r2.cb_y, r2.cb_size, r2.cb_size, 1)
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(cb_x, r2_y, cb_size, cb_size, 0)
+    gfx.rect(r2.cb_x, r2.cb_y, r2.cb_size, r2.cb_size, 0)
     if analysis_mode == "detailed" then
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.rect(cb_x + 3, r2_y + 3, cb_size - 6, cb_size - 6, 1)
+      gfx.rect(r2.cb_x + 3, r2.cb_y + 3, r2.cb_size - 6, r2.cb_size - 6, 1)
     end
     gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-    gfx.x, gfx.y = cb_x + 28, r2_y + 1
+    gfx.x, gfx.y = r2.cb_x + 28, r2.cb_y + 1
     gfx.drawstr(t("mode_detailed"))
 
     -- Linha divisória
@@ -1184,16 +1224,13 @@ local function draw_gui()
     -- Backend de Análise Label
     gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
     gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
-    gfx.x, gfx.y = 30, 230
+    gfx.x, gfx.y = 30, layout.backend_label_y
     gfx.drawstr(t("backend_label"))
     gfx.setfont(1, "Segoe UI", 11)
 
-    local backend_options = {
-      { key = "gemini",   label = t("backend_gemini") },
-      { key = "panns",    label = t("backend_panns") },
-    }
+    local cb_x, cb_size = layout.backend_cb_x, layout.backend_cb_size
     for i, opt in ipairs(backend_options) do
-      local opt_y = 252 + (i - 1) * 25
+      local opt_y = layout.backend_start_y + (i - 1) * layout.backend_spacing_y
       gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
       gfx.rect(cb_x, opt_y, cb_size, cb_size, 1)
       gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
@@ -1204,12 +1241,12 @@ local function draw_gui()
       end
       gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
       gfx.x, gfx.y = cb_x + 28, opt_y + 1
-      gfx.drawstr(opt.label)
+      gfx.drawstr(t(opt.label_key))
     end
 
     -- Linha divisória
     gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-    gfx.line(30, 350, 290, 350)
+    gfx.line(30, 370, 290, 370)
 
     -- Campos de Texto
     for i, inp in ipairs(inputs) do
@@ -1272,40 +1309,39 @@ local function draw_gui()
     end
 
     -- Botao Mostrar/Ocultar para a API Key
-    local eye_x, eye_y, eye_w, eye_h = 210, 470, 80, 30
-    local eye_half_w = eye_w / 2
-    local mouse_over_eye = gfx.mouse_x >= eye_x and gfx.mouse_x <= eye_x + eye_half_w and gfx.mouse_y >= eye_y and gfx.mouse_y <= eye_y + eye_h
+    local eye = layout.api_eye
+    local mouse_over_eye = in_rect(eye.x, eye.y, eye.w, eye.h)
     if mouse_over_eye then
       gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
     else
       gfx.r, gfx.g, gfx.b = 0.18, 0.18, 0.18
     end
-    gfx.rect(eye_x, eye_y, eye_half_w, eye_h, 1)
+    gfx.rect(eye.x, eye.y, eye.w, eye.h, 1)
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(eye_x, eye_y, eye_half_w, eye_h, 0)
+    gfx.rect(eye.x, eye.y, eye.w, eye.h, 0)
     gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
     local eye_text = show_api_key and t("btn_hide") or t("btn_show")
     local etw, eth = gfx.measurestr(eye_text)
-    gfx.x = eye_x + (eye_half_w - etw)/2
-    gfx.y = eye_y + (eye_h - eth)/2
+    gfx.x = eye.x + (eye.w - etw)/2
+    gfx.y = eye.y + (eye.h - eth)/2
     gfx.drawstr(eye_text)
 
     -- Botao Salvar para a API Key
-    local save_x, save_y, save_w, save_h = eye_x + eye_half_w, eye_y, eye_half_w, eye_h
-    local mouse_over_save = gfx.mouse_x >= save_x and gfx.mouse_x <= save_x + save_w and gfx.mouse_y >= save_y and gfx.mouse_y <= save_y + save_h
+    local save = layout.api_save
+    local mouse_over_save = in_rect(save.x, save.y, save.w, save.h)
     if mouse_over_save then
       gfx.r, gfx.g, gfx.b = 0.42, 0.24, 0.24
     else
       gfx.r, gfx.g, gfx.b = 0.34, 0.18, 0.18
     end
-    gfx.rect(save_x, save_y, save_w, save_h, 1)
+    gfx.rect(save.x, save.y, save.w, save.h, 1)
     gfx.r, gfx.g, gfx.b = 0.46, 0.28, 0.28
-    gfx.rect(save_x, save_y, save_w, save_h, 0)
+    gfx.rect(save.x, save.y, save.w, save.h, 0)
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.setfont(1, "Segoe UI", 8, 98)
     local stw, sth = gfx.measurestr(t("btn_save"))
-    gfx.x = save_x + (save_w - stw)/2
-    gfx.y = save_y + (save_h - sth)/2
+    gfx.x = save.x + (save.w - stw)/2
+    gfx.y = save.y + (save.h - sth)/2
     gfx.drawstr(t("btn_save"))
 
     -- Info de resumo econômico/faixas dinâmico
@@ -1313,29 +1349,29 @@ local function draw_gui()
     gfx.setfont(1, "Segoe UI", 11)
     if n_jobs == 0 then
       gfx.r, gfx.g, gfx.b = 0.8, 0.6, 0.2 -- Amarelo/Dourado suave
-      gfx.x, gfx.y = 30, 508
+      gfx.x, gfx.y = 30, 558
       gfx.drawstr(t("msg_no_audio"))
     else
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65 -- Cinza suave
-      gfx.x, gfx.y = 30, 512
+      gfx.x, gfx.y = 30, 562
       local msg = string.format(t("msg_summary"), n_jobs, n_skipped)
       gfx.drawstr(msg)
     end
 
     -- Botao Analisar (Coral) - Centrado de largura total
-    local btn_x, btn_y, btn_w, btn_h = 30, 535, 260, 36
-    local mouse_over_run = gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h
+    local btn = layout.analyze
+    local mouse_over_run = in_rect(btn.x, btn.y, btn.w, btn.h)
     if mouse_over_run then
       gfx.r, gfx.g, gfx.b = 0.65, 0.1, 0.15
     else
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
     end
-    gfx.rect(btn_x, btn_y, btn_w, btn_h, 1)
+    gfx.rect(btn.x, btn.y, btn.w, btn.h, 1)
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.setfont(1, "Segoe UI", 12, 98) -- Bold
     local tw, th = gfx.measurestr(t("btn_analyze"))
-    gfx.x = btn_x + (btn_w - tw)/2
-    gfx.y = btn_y + (btn_h - th)/2
+    gfx.x = btn.x + (btn.w - tw)/2
+    gfx.y = btn.y + (btn.h - th)/2
     gfx.drawstr(t("btn_analyze"))
 
     -- Aviso experimental
@@ -1346,10 +1382,10 @@ local function draw_gui()
     local note1_w = gfx.measurestr(note1)
     local note2_w = gfx.measurestr(note2)
     gfx.x = (gfx.w - note1_w) / 2
-    gfx.y = 585
+    gfx.y = 635
     gfx.drawstr(note1)
     gfx.x = (gfx.w - note2_w) / 2
-    gfx.y = 596
+    gfx.y = 646
     gfx.drawstr(note2)
 
     -- Creditos visiveis
@@ -1357,7 +1393,7 @@ local function draw_gui()
     local credit_text = "by jasko"
     local cr_w, cr_h = gfx.measurestr(credit_text)
     local cr_x = (gfx.w - cr_w) / 2
-    local cr_y = 616
+    local cr_y = 666
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.x = cr_x
     gfx.y = cr_y
@@ -1408,19 +1444,19 @@ local function draw_gui()
     draw_copy_button()
 
     -- Botao Fechar
-    local btn_x, btn_y, btn_w, btn_h = 30, 605, 260, 36
-    local mouse_over_close = gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h
+    local btn = layout.close
+    local mouse_over_close = in_rect(btn.x, btn.y, btn.w, btn.h)
     if mouse_over_close then
       gfx.r, gfx.g, gfx.b = 0.65, 0.1, 0.15
     else
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
     end
-    gfx.rect(btn_x, btn_y, btn_w, btn_h, 1)
+    gfx.rect(btn.x, btn.y, btn.w, btn.h, 1)
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.setfont(1, "Segoe UI", 12, 98) -- Bold
     local tw, th = gfx.measurestr(t("btn_close"))
-    gfx.x = btn_x + (btn_w - tw)/2
-    gfx.y = btn_y + (btn_h - th)/2
+    gfx.x = btn.x + (btn.w - tw)/2
+    gfx.y = btn.y + (btn.h - th)/2
     gfx.drawstr(t("btn_close"))
   end
 
@@ -1434,48 +1470,45 @@ local function update_gui()
   if mouse_pressed then
     if gui_state == "config" then
       -- Clique no radio de idioma no topo
-      if gfx.mouse_y >= 12 and gfx.mouse_y <= 28 then
-        if gfx.mouse_x >= 241 and gfx.mouse_x <= 273 then
-          if set_language("en") then
-            return "redraw"
-          end
-        elseif gfx.mouse_x >= 276 and gfx.mouse_x <= 312 then
-          if set_language("pt") then
-            return "redraw"
-          end
+      local en = layout.lang_en
+      local pt = layout.lang_pt
+      if in_rect(en.x, en.y, en.w, en.h) then
+        if set_language("en") then
+          return "redraw"
+        end
+      elseif in_rect(pt.x, pt.y, pt.w, pt.h) then
+        if set_language("pt") then
+          return "redraw"
         end
       end
 
-      -- Clique no checkbox
-      if gfx.mouse_x >= 30 and gfx.mouse_x <= 290 and gfx.mouse_y >= 110 and gfx.mouse_y <= 130 then
+      -- Clique no checkbox "Apenas faixas selecionadas"
+      local opt = layout.only_selected
+      if in_rect(opt.x, opt.y, opt.w, opt.h) then
         only_selected = not only_selected
         return "redraw"
       end
 
       -- Clicou Radio 1 "Análise rápida"
-      if gfx.mouse_x >= 30 and gfx.mouse_x <= 290 and gfx.mouse_y >= 165 and gfx.mouse_y <= 185 then
+      local r1 = layout.mode_fast
+      if in_rect(r1.x, r1.y, r1.w, r1.h) then
         analysis_mode = "fast"
         return "redraw"
       end
 
       -- Clicou Radio 2 "Análise detalhada"
-      if gfx.mouse_x >= 30 and gfx.mouse_x <= 290 and gfx.mouse_y >= 190 and gfx.mouse_y <= 210 then
+      local r2 = layout.mode_detailed
+      if in_rect(r2.x, r2.y, r2.w, r2.h) then
         analysis_mode = "detailed"
         return "redraw"
       end
 
       -- Clique nos botões de Rádio do Backend
-      local cb_x, cb_size = 30, 18
-      local backend_options = {
-        { key = "gemini",   label = t("backend_gemini") },
-        { key = "yamnet",   label = t("backend_yamnet") },
-        { key = "essentia", label = t("backend_essentia") },
-        { key = "panns",    label = t("backend_panns") },
-      }
-      for i, opt in ipairs(backend_options) do
-        local opt_y = 252 + (i - 1) * 25
-        if gfx.mouse_x >= cb_x and gfx.mouse_x <= cb_x + cb_size and gfx.mouse_y >= opt_y and gfx.mouse_y <= opt_y + cb_size then
-          backend = opt.key
+      local cb_x, cb_size = layout.backend_cb_x, layout.backend_cb_size
+      for i, opt_backend in ipairs(backend_options) do
+        local opt_y = layout.backend_start_y + (i - 1) * layout.backend_spacing_y
+        if in_rect(cb_x, opt_y, cb_size, cb_size) then
+          backend = opt_backend.key
           reaper.SetExtState("AiNOMEATOR", "backend", backend, true)
           return "redraw"
         end
@@ -1484,7 +1517,7 @@ local function update_gui()
       -- Clique nos campos de texto
       local clicked_input = false
       for i, inp in ipairs(inputs) do
-        if gfx.mouse_x >= inp.x and gfx.mouse_x <= inp.x + inp.w and gfx.mouse_y >= inp.y and gfx.mouse_y <= inp.y + inp.h then
+        if in_rect(inp.x, inp.y, inp.w, inp.h) then
           focused_input = i
           clicked_input = true
           break
@@ -1495,15 +1528,14 @@ local function update_gui()
       end
 
       -- Clique no botao Mostrar/Ocultar
-      local eye_x, eye_y, eye_w, eye_h = 210, 470, 80, 30
-      local eye_half_w = eye_w / 2
-      if gfx.mouse_x >= eye_x and gfx.mouse_x <= eye_x + eye_half_w and gfx.mouse_y >= eye_y and gfx.mouse_y <= eye_y + eye_h then
+      local eye = layout.api_eye
+      if in_rect(eye.x, eye.y, eye.w, eye.h) then
         show_api_key = not show_api_key
       end
 
       -- Clique no botao Salvar API Key
-      local save_x, save_y, save_w, save_h = eye_x + eye_half_w, eye_y, eye_half_w, eye_h
-      if gfx.mouse_x >= save_x and gfx.mouse_x <= save_x + save_w and gfx.mouse_y >= save_y and gfx.mouse_y <= save_y + save_h then
+      local save = layout.api_save
+      if in_rect(save.x, save.y, save.w, save.h) then
         if not sync_api_key_to_env(inputs[3].val) then
           reaper.MB("Failed to save the Gemini API key to .env.", "AiNOMEATOR", 0)
         end
@@ -1511,8 +1543,8 @@ local function update_gui()
       end
 
       -- Clique no botao ANALISAR
-      local btn_x, btn_y, btn_w, btn_h = 30, 535, 260, 36
-      if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
+      local btn = layout.analyze
+      if in_rect(btn.x, btn.y, btn.w, btn.h) then
         return "run"
       end
 
@@ -1521,28 +1553,15 @@ local function update_gui()
       local cr_w, cr_h = gfx.measurestr("by jasko")
       local cr_x = (gfx.w - cr_w) / 2
       local cr_y = 616
-      if gfx.mouse_x >= cr_x and gfx.mouse_x <= cr_x + cr_w and gfx.mouse_y >= cr_y and gfx.mouse_y <= cr_y + cr_h then
+      if in_rect(cr_x, cr_y, cr_w, cr_h) then
         open_url("https://jasko.dev")
         return "redraw"
       end
 
-      -- Clique no radio de idioma no topo
-      if gfx.mouse_y >= 39 and gfx.mouse_y <= 50 then
-        if gfx.mouse_x >= 199 and gfx.mouse_x <= 225 then
-          if set_language("en") then
-            return "redraw"
-          end
-        elseif gfx.mouse_x >= 239 and gfx.mouse_x <= 285 then
-          if set_language("pt") then
-            return "redraw"
-          end
-        end
-      end
-
-
-    elseif gui_state == "analyzing" then
-      local copy_x, copy_y, copy_w, copy_h = 190, 105, 100, 24
-      if gfx.mouse_x >= copy_x and gfx.mouse_x <= copy_x + copy_w and gfx.mouse_y >= copy_y and gfx.mouse_y <= copy_y + copy_h then
+    elseif gui_state == "analyzing" or gui_state == "completed" or gui_state == "error" then
+      -- Clique no botao de copiar logs
+      local btn = layout.copy_logs
+      if in_rect(btn.x, btn.y, btn.w, btn.h) then
         if reaper.CF_SetClipboard then
           reaper.CF_SetClipboard(table.concat(gui_logs, "\n"))
           reaper.MB(t("msg_copied"), "AiNOMEATOR", 0)
@@ -1551,21 +1570,13 @@ local function update_gui()
           reaper.MB(t("msg_sent_console"), "AiNOMEATOR", 0)
         end
       end
-    elseif gui_state == "completed" or gui_state == "error" then
-      local copy_x, copy_y, copy_w, copy_h = 190, 105, 100, 24
-      if gfx.mouse_x >= copy_x and gfx.mouse_x <= copy_x + copy_w and gfx.mouse_y >= copy_y and gfx.mouse_y <= copy_y + copy_h then
-        if reaper.CF_SetClipboard then
-          reaper.CF_SetClipboard(table.concat(gui_logs, "\n"))
-          reaper.MB(t("msg_copied"), "AiNOMEATOR", 0)
-        else
-          reaper.ShowConsoleMsg(table.concat(gui_logs, "\n") .. "\n")
-          reaper.MB(t("msg_sent_console"), "AiNOMEATOR", 0)
+
+      -- Clique no botao FECHAR (apenas se completed ou error)
+      if gui_state == "completed" or gui_state == "error" then
+        local close_btn = layout.close
+        if in_rect(close_btn.x, close_btn.y, close_btn.w, close_btn.h) then
+          return "close"
         end
-      end
-      -- Clique no botao FECHAR
-      local btn_x, btn_y, btn_w, btn_h = 30, 605, 260, 36
-      if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
-        return "close"
       end
     end
   end

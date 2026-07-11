@@ -52,7 +52,7 @@ model_env = os.environ.get("GEMINI_MODELS")
 if model_env:
     MODELOS_FALLBACK = [m.strip() for m in model_env.split(",") if m.strip()]
 else:
-    MODELOS_FALLBACK = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
+    MODELOS_FALLBACK = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-2.5-flash"]
 
 DEFAULT_PROMPT_PT = """Voce e um assistente de organizacao de faixas de audio dentro de uma DAW (estacao de audio digital).
 

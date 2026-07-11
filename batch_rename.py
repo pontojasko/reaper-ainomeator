@@ -157,9 +157,107 @@ def _process_one_local(idx, audio_path, start_sec, dur_sec, segment_seconds, qua
                 pass
 
 
+def _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend_name):
+    """Processa UMA track usando um algoritmo de analise hibrida que combina PANNs local e Gemini em nuvem."""
+    tmp_seg_path = None
+    tmp_light_path = None
+    tmp_mp3_path = None
+    try:
+        if not audio_path or not os.path.isfile(audio_path):
+            return idx, {"error": f"arquivo nao encontrado: {audio_path}"}
+
+        search_start = start_sec if start_sec is not None and start_sec >= 0 else None
+        search_dur = dur_sec if dur_sec is not None and dur_sec > 0 else None
+
+        # 1. Extracao do segmento de audio
+        tmp_seg_fd, tmp_seg_path = tempfile.mkstemp(suffix=".wav", prefix="ai_namer_seg_")
+        os.close(tmp_seg_fd)
+        
+        extract_best_segment(
+            audio_path, tmp_seg_path, segment_seconds=segment_seconds,
+            search_start_seconds=search_start,
+            search_duration_seconds=search_dur,
+        )
+
+        # 2. Executar PANNs local
+        panns_result = classify_with_panns(tmp_seg_path, output_language=output_language)
+        panns_ok = panns_result and "error" not in panns_result
+        
+        # Helper para chamar Gemini sob demanda
+        def call_gemini():
+            nonlocal tmp_light_path, tmp_mp3_path
+            if not api_available or not client:
+                return {"error": "API do Gemini nao disponivel para resgate"}
+            
+            # Preparar audio bytes para o Gemini
+            if quality == "alta":
+                with open(tmp_seg_path, "rb") as f:
+                    audio_bytes = f.read()
+                mime_type = "audio/wav"
+            else:
+                tmp_mp3_fd, tmp_mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="ai_namer_mp3_")
+                os.close(tmp_mp3_fd)
+                mp3_success = convert_to_mp3_128k(tmp_seg_path, tmp_mp3_path)
+                
+                if mp3_success:
+                    with open(tmp_mp3_path, "rb") as f:
+                        audio_bytes = f.read()
+                    mime_type = "audio/mp3"
+                else:
+                    tmp_light_fd, tmp_light_path = tempfile.mkstemp(suffix=".wav", prefix="ai_namer_light_")
+                    os.close(tmp_light_fd)
+                    downmix_resample(tmp_seg_path, tmp_light_path)
+                    with open(tmp_light_path, "rb") as f:
+                        audio_bytes = f.read()
+                    mime_type = "audio/wav"
+
+            current_models = shared_models.get_models()
+            def on_model_failed(model_name):
+                shared_models.remove_model(model_name)
+
+            return classify_audio_bytes(
+                client, audio_bytes, mime_type=mime_type,
+                models=current_models, on_model_failed=on_model_failed,
+                output_language=output_language
+            )
+
+        # 3. Decidir fluxo baseado no backend hibrido
+        if backend_name == "hybrid_heuristic":
+            # PANNs e otimo para cordas, sopro, bateria
+            if panns_ok and panns_result.get("category") in ("cordas", "sopro", "bateria"):
+                panns_result["_model_usado"] = "panns_hybrid_heuristic"
+                return idx, panns_result
+            
+            # Para outros (synth, outro, vocal, baixo, teclado, guitarra ou erro), aciona o Gemini
+            gemini_result = call_gemini()
+            if "error" not in gemini_result:
+                gemini_result["_model_usado"] = f"gemini_{gemini_result.get('_model_usado', 'hybrid')}_heuristic"
+                return idx, gemini_result
+            else:
+                if panns_ok:
+                    panns_result["_model_usado"] = "panns_fallback_heuristic"
+                    return idx, panns_result
+                return idx, gemini_result
+
+        else:
+            return idx, {"error": f"backend hibrido desconhecido: {backend_name}"}
+
+    except Exception as e:
+        return idx, {"error": f"{type(e).__name__}: {e}"}
+    finally:
+        for p in (tmp_seg_path, tmp_light_path, tmp_mp3_path):
+            if p and os.path.isfile(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+
 def process_one(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend="gemini"):
     if backend in LOCAL_BACKENDS:
         return _process_one_local(idx, audio_path, start_sec, dur_sec, segment_seconds, quality, output_language, backend)
+    if backend == "hybrid_heuristic":
+        return _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend)
     if not api_available:
         return idx, {"category": "outro", "instrument": "Audio", "confidence": 0.0, "_model_usado": "fallback_universal"}
 
@@ -357,8 +455,8 @@ def main():
                          help="Qualidade de analise: 'normal' ou 'alta'")
     parser.add_argument("--output-language", choices=["pt", "en"], default="pt",
                          help="idioma do campo instrument: pt ou en (padrao: pt)")
-    parser.add_argument("--backend", choices=["gemini", "yamnet", "essentia", "panns"], default="gemini",
-                         help="backend de classificacao: gemini (API, padrao) ou yamnet/essentia/panns (locais, sem API key)")
+    parser.add_argument("--backend", choices=["gemini", "yamnet", "essentia", "panns", "hybrid_heuristic"], default="gemini",
+                         help="backend de classificacao: gemini (API, padrao), yamnet/essentia/panns (locais), ou hibridos (heuristic)")
     parser.add_argument("--panns-threads", type=int, default=None,
                          help="threads internas do PyTorch (PANNs) por worker")
     args = parser.parse_args()
