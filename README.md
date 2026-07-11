@@ -34,6 +34,11 @@ A fully structured, color-coded, and properly named Reaper session ready for mix
 
 ## Getting Started
 
+> [!IMPORTANT]
+> **[PT] IMPORTANTE:** Não basta apenas carregar e rodar o arquivo `AiNOMEATOR.lua` no Reaper! Este script depende de um backend em Python. Você **DEVE** executar o arquivo `setup.bat` (que baixa e configura o ambiente local, instalando pacotes como PyTorch e PANNs) e configurar o arquivo `.env` com sua chave do Gemini para que o script funcione.
+> 
+> **[EN] IMPORTANT:** Simply loading and running the `AiNOMEATOR.lua` script inside Reaper is not enough! This tool relies on a Python backend. You **MUST** run the `setup.bat` file to create the virtual environment and install dependencies, and set up your Gemini API key in the `.env` file for the tool to work.
+
 Follow these steps to get AiNOMEATOR running in your Reaper environment.
 
 ### Prerequisites
