@@ -56,7 +56,7 @@ Once installed and configured, run the **AiNOMEATOR** script from your Reaper Ac
 
 To get the most accurate and fastest results, we strongly recommend the following settings in the GUI:
 
-- **Analysis Backend**: Select **Hybrid Heuristic**. This is by far the most accurate mode. It runs a local CNN14 (PANNs) model and cloud Gemini in parallel. It uses PANNs to capture physical spectral characteristics (like low frequencies and transients) and Gemini to interpret semantic context, merging them with a smart Arbiter and DSP checks.
+- **Analysis Backend**: Start with **Hybrid Heuristic** as your baseline, as it is generally the most accurate mode. It runs a local CNN14 (PANNs) model and cloud Gemini in parallel. However, since the optimal backend can vary based on the specific music genre and personal preferences, you are encouraged to experiment with different backends to find what works best for your workflow.
 - **Analysis Mode**: Use **Fast** for a lightweight 128kbps MP3 consisting of energy peak segments. Use **Detailed** (WAV) only for highly complex arrangements.
 - **Sort Tracks**: Enable this to automatically group and sort your tracks by instrument family. Guitars and acoustic guitars are glued together at the top, followed by Keys, Synths, Strings, Brass, Bass, Drums, and Vocals.
 - **Parallel Tracks**: Keep the thread count low (`1` or `2`) to avoid Gemini rate limits.
