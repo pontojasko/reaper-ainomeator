@@ -72,20 +72,27 @@ LOCAL_BACKENDS = {
 
 
 class SharedModelList:
-    def __init__(self, initial_models):
+    def __init__(self, initial_models, output_language="pt"):
         self.models = list(initial_models)
+        self.output_language = output_language
 
     def get_models(self):
         return list(self.models)
 
     def remove_model(self, model):
         if model in self.models and len(self.models) > 1:
-            print(f"\n  [AVISO] Modelo '{model}' indisponível/falhou! Ativando fallback global de modelo para todas as demais faixas do lote...")
+            if self.output_language == "pt":
+                print(f"\n  [AVISO] Modelo '{model}' indisponível/falhou! Ativando fallback global de modelo para todas as demais faixas do lote...")
+            else:
+                print(f"\n  [WARNING] Model '{model}' unavailable/failed! Activating global model fallback for all remaining batch tracks...")
             self.models.remove(model)
 
 
-def check_api_availability(client, models):
-    print("\n[batch_rename] Checking Gemini API availability...")
+def check_api_availability(client, models, output_language="pt"):
+    if output_language == "pt":
+        print("\n[batch_rename] Verificando disponibilidade da API Gemini...")
+    else:
+        print("\n[batch_rename] Checking Gemini API availability...")
     for i, model in enumerate(models):
         try:
             response = client.models.generate_content(
@@ -94,10 +101,16 @@ def check_api_availability(client, models):
                 config=types.GenerateContentConfig(temperature=0.1)
             )
             if response.text:
-                print(f"  [OK] API available (model: {model}).")
+                if output_language == "pt":
+                    print(f"  [OK] API disponível (modelo: {model}).")
+                else:
+                    print(f"  [OK] API available (model: {model}).")
                 return True, models[i:]
         except Exception as e:
-            print(f"  [ERRO] Failed with {model} ({type(e).__name__}: {e}).")
+            if output_language == "pt":
+                print(f"  [ERRO] Falhou com {model} ({type(e).__name__}: {e}).")
+            else:
+                print(f"  [ERROR] Failed with {model} ({type(e).__name__}: {e}).")
     return False, models
 
 
@@ -582,8 +595,11 @@ def generate_colors_ini(client, model, prompt_text):
     return text
 
 
-def handle_color_generation(client, models, prompt_text, config_path):
-    print(f"\n[batch_rename] Generating custom color palette with prompt: \"{prompt_text}\"...")
+def handle_color_generation(client, models, prompt_text, config_path, output_language="pt"):
+    if output_language == "pt":
+        print(f"\n[batch_rename] Gerando paleta de cores personalizada com o prompt: \"{prompt_text}\"...")
+    else:
+        print(f"\n[batch_rename] Generating custom color palette with prompt: \"{prompt_text}\"...")
     ERROS_TRANSITORIOS = ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DeadlineExceeded", "timeout")
     
     for idx_modelo, model in enumerate(models):
@@ -592,12 +608,15 @@ def handle_color_generation(client, models, prompt_text, config_path):
                 ini_content = generate_colors_ini(client, model, prompt_text)
                 
                 if "[Cores]" not in ini_content and "vocal_principal" not in ini_content:
-                    raise ValueError("Resposta do modelo nao contem secao [Cores] ou chaves esperadas.")
+                    raise ValueError("Resposta do modelo nao contem secao [Cores] ou chaves esperadas." if output_language == "pt" else "Model response does not contain [Cores] section or expected keys.")
                 
                 with open(config_path, "w", encoding="utf-8") as f:
                     f.write(ini_content)
                 
-                print(f"  [OK] New color palette successfully saved in: {config_path}")
+                if output_language == "pt":
+                    print(f"  [OK] Nova paleta de cores salva com sucesso em: {config_path}")
+                else:
+                    print(f"  [OK] New color palette successfully saved in: {config_path}")
                 return
                 
             except Exception as e:
@@ -610,9 +629,15 @@ def handle_color_generation(client, models, prompt_text, config_path):
                 time.sleep(2)
                 
         if idx_modelo < len(models) - 1:
-            print(f"  [{model} indisponivel para cores, tentando proximo modelo: {models[idx_modelo + 1]}...]")
+            if output_language == "pt":
+                print(f"  [{model} indisponivel para cores, tentando proximo modelo: {models[idx_modelo + 1]}...]")
+            else:
+                print(f"  [{model} unavailable for colors, trying next model: {models[idx_modelo + 1]}...]")
             
-    print(f"  [ERRO] Could not generate custom color palette. Using existing palette.")
+    if output_language == "pt":
+        print(f"  [ERRO] Nao foi possivel gerar paleta de cores personalizada. Usando paleta existente.")
+    else:
+        print(f"  [ERROR] Could not generate custom color palette. Using existing palette.")
 
 
 def main():
@@ -651,16 +676,26 @@ def main():
 
     if not use_local_backend:
         if not api_key:
-            print("ERRO: GEMINI_API_KEY nao encontrada (crie/edite o .env nesta pasta).")
-            print("Dica: use --backend yamnet, --backend essentia ou --backend panns para classificacao local sem API key.")
+            if args.output_language == "pt":
+                print("ERRO: GEMINI_API_KEY nao encontrada (crie/edite o .env nesta pasta).")
+                print("Dica: use --backend yamnet, --backend essentia ou --backend panns para classificacao local sem API key.")
+            else:
+                print("ERROR: GEMINI_API_KEY not found (create/edit .env in this folder).")
+                print("Tip: use --backend yamnet, --backend essentia or --backend panns for local classification without API key.")
             sys.exit(1)
         client = genai.Client(api_key=api_key)
     else:
         client = None
-        print(f"[batch_rename] Backend: {args.backend} (local, sem API)")
+        if args.output_language == "pt":
+            print(f"[batch_rename] Backend: {args.backend} (local, sem API)")
+        else:
+            print(f"[batch_rename] Backend: {args.backend} (local, no API)")
 
     if not os.path.isfile(args.manifest_path):
-        print(f"ERRO: manifest nao encontrado: {args.manifest_path}")
+        if args.output_language == "pt":
+            print(f"ERRO: manifest nao encontrado: {args.manifest_path}")
+        else:
+            print(f"ERROR: manifest not found: {args.manifest_path}")
         sys.exit(1)
 
     if not use_local_backend:
@@ -668,9 +703,12 @@ def main():
         models = args.models.split(",") if args.models else None
         initial_models = models if models else MODELOS_FALLBACK
 
-        api_available, working_models = check_api_availability(client, initial_models)
+        api_available, working_models = check_api_availability(client, initial_models, output_language=args.output_language)
         if not api_available:
-            print("\n[AVISO] Initial check failed. Activating universal fallback (no AI) for all steps.")
+            if args.output_language == "pt":
+                print("\n[AVISO] Verificacao inicial falhou. Ativando fallback universal (sem IA) para todos os passos.")
+            else:
+                print("\n[WARNING] Initial check failed. Activating universal fallback (no AI) for all steps.")
         initial_models = working_models
     else:
         api_available = True  # backends locais sao sempre "available" (rodam na maquina)
@@ -679,9 +717,12 @@ def main():
         # Se o prompt de cores foi informado, gera a paleta antes do processamento das faixas
     if args.color_prompt and args.config_path:
         if api_available and not use_local_backend:
-            handle_color_generation(client, initial_models, args.color_prompt, args.config_path)
+            handle_color_generation(client, initial_models, args.color_prompt, args.config_path, output_language=args.output_language)
         else:
-            print(f"\n[batch_rename] Pulando geracao de cores customizada (API indisponivel ou backend local). Usando paleta existente.")
+            if args.output_language == "pt":
+                print(f"\n[batch_rename] Pulando geracao de cores customizada (API indisponivel ou backend local). Usando paleta existente.")
+            else:
+                print(f"\n[batch_rename] Skipping custom color generation (API unavailable or local backend). Using existing palette.")
 
     entries = read_manifest(args.manifest_path)
     total = len(entries)
@@ -692,7 +733,7 @@ def main():
         Path(args.result_path).touch()
         return
 
-    shared_models = SharedModelList(initial_models)
+    shared_models = SharedModelList(initial_models, output_language=args.output_language)
 
     print(f"\n[ analysis : {args.backend} {'local' if use_local_backend else 'cloud'} inference ]")
 
@@ -724,7 +765,7 @@ def main():
 
     with open(args.result_path, "w", encoding="utf-8") as f:
         for idx, path, start, dur in entries:
-            r = results.get(idx, {"error": "sem resultado (thread nao completou)"})
+            r = results.get(idx, {"error": "sem resultado (thread nao completou)" if args.output_language == "pt" else "no result (thread did not complete)"})
             if "error" in r:
                 f.write(f"{idx}\terro\t\t\t\t{_sanitize(r['error'])}\n")
             else:

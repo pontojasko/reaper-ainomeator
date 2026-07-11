@@ -77,8 +77,8 @@ _YAMNET_LABEL_MAP = {
     "Double bass":                    ("baixo", "Contrabaixo", "Double bass"),
 
     # Guitarra
-    "Acoustic guitar":                ("guitarra", "Violao", "Acoustic guitar"),
-    "Electric guitar":                ("guitarra", "Guitarra eletrica", "Electric guitar"),
+    "Acoustic guitar":                ("guitarra", "Violão", "Acoustic guitar"),
+    "Electric guitar":                ("guitarra", "Guitarra", "Electric guitar"),
     "Steel guitar":                   ("guitarra", "Guitarra (steel)", "Steel guitar"),
     "Slide guitar":                   ("guitarra", "Guitarra (slide)", "Slide guitar"),
     "Banjo":                          ("guitarra", "Banjo", "Banjo"),
@@ -91,7 +91,7 @@ _YAMNET_LABEL_MAP = {
     "Harpsichord":                    ("teclado", "Cravo", "Harpsichord"),
 
     # Synth
-    "Synthesizer":                    ("synth", "Synth", "Synth"),
+    "Synthesizer":                    ("synth", "Sintetizador", "Synth"),
     "Synth bass":                     ("synth", "Synth baixo", "Synth bass"),
 
     # Sopro

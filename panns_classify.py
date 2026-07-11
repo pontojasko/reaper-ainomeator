@@ -60,8 +60,8 @@ _LABEL_MAP = {
     "Double bass":                    ("baixo", "Contrabaixo", "Double bass"),
 
     # Guitarra
-    "Acoustic guitar":                ("guitarra", "Violao", "Acoustic guitar"),
-    "Electric guitar":                ("guitarra", "Guitarra eletrica", "Electric guitar"),
+    "Acoustic guitar":                ("guitarra", "Violão", "Acoustic guitar"),
+    "Electric guitar":                ("guitarra", "Guitarra", "Electric guitar"),
     "Steel guitar, slide guitar":     ("guitarra", "Guitarra (steel/slide)", "Steel/slide guitar"),
     "Banjo":                          ("guitarra", "Banjo", "Banjo"),
     "Ukulele":                        ("guitarra", "Ukulele", "Ukulele"),
@@ -111,7 +111,7 @@ def _get_model():
             from panns_inference import AudioTagging, labels
             import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            print("  [PANNs] Loading CNN14 AI Model (device={device}) (~300MB)...")
+            print(f"  [PANNs] Loading CNN14 AI Model (device={device}) (~300MB)...")
             _audio_tagger = AudioTagging(checkpoint_path=None, device=device)
             _panns_labels = labels
     return _audio_tagger, _panns_labels

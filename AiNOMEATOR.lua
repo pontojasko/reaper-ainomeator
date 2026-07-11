@@ -942,7 +942,7 @@ local function start_analysis()
     reaper.ShowConsoleMsg("")  -- garante que o console abre
   end
   log("╭──────────────────────────────────────────────────────────╮")
-  log("│ ainomeator by jasko                                      │")
+  log("│ ainomeator by jasko                                                        │")
   log("╰──────────────────────────────────────────────────────────╯")
   log("")
   log("[ setup ]")
@@ -1154,6 +1154,23 @@ local function start_analysis()
 
     log("\n[ reaper integration ]")
     log("› applying metadata & rgb color profiles...")
+    local cat_names = {
+      vocal_principal = { en = "lead_vocals", pt = "vocal_principal" },
+      backing_vocals  = { en = "backing_vocals", pt = "backing_vocals" },
+      bateria         = { en = "drums", pt = "bateria" },
+      percussao       = { en = "percussion", pt = "percussão" },
+      baixo           = { en = "bass", pt = "baixo" },
+      guitarra_eletrica = { en = "electric_guitar", pt = "guitarra" },
+      violao          = { en = "acoustic_guitar", pt = "violão" },
+      teclado         = { en = "keyboard", pt = "teclado" },
+      synth           = { en = "synth", pt = "sintetizador" },
+      cordas          = { en = "strings", pt = "cordas" },
+      sopros          = { en = "brass_winds", pt = "sopros" },
+      efeitos         = { en = "sfx", pt = "efeitos" },
+      pastas          = { en = "folders", pt = "pastas" },
+      outro           = { en = "other", pt = "outro" }
+    }
+
     local keys_order = {
       "vocal_principal", "backing_vocals", "bateria", "percussao", "baixo",
       "guitarra_eletrica", "violao", "teclado", "synth", "cordas", "sopros",
@@ -1164,7 +1181,8 @@ local function start_analysis()
       if indices and #indices > 0 then
         local rgb = color_rgb[col_key]
         local trk_str = format_ranges(indices)
-        log(string.format("  + %-18s [rgb: %03d,%03d,%03d] : %s", col_key, rgb[1], rgb[2], rgb[3], trk_str))
+        local disp_name = cat_names[col_key] and cat_names[col_key][lang] or col_key
+        log(string.format("  + %-18s [rgb: %03d,%03d,%03d] : %s", disp_name, rgb[1], rgb[2], rgb[3], trk_str))
       end
     end
 
