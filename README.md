@@ -1,7 +1,9 @@
 <div align="center">
   <img src="ainomeator_logo.png" alt="AiNOMEATOR" width="240"/>
 
-  # ReaperAiNOMEATOR
+  # AI Nomeator
+
+  
 
   [![License](https://img.shields.io/github/license/pontojasko/ReaperAiNOMEATOR?style=flat-square)](LICENSE)
   [![Stars](https://img.shields.io/github/stars/pontojasko/ReaperAiNOMEATOR?style=flat-square)](https://github.com/pontojasko/ReaperAiNOMEATOR/stargazers)
@@ -24,16 +26,11 @@
 
 ## Overview
 
-**The Pain:** Exporting stems from modern DAWs or receiving poorly named tracks from clients usually means spending hours manually renaming, coloring, and organizing the session before you can even start mixing.
+Exporting stems from modern DAWs or receiving poorly named tracks from clients usually means spending hours manually renaming, coloring, and organizing the session before you can even start mixing.
 
-**The Solution:** AiNOMEATOR offloads this heavy lifting to a background AI processor. By utilizing a hybrid model approach (combining local CNNs and cloud-based Gemini), it accurately identifies the instruments playing in each stem and automatically organizes your entire Reaper project.
+AiNOMEATOR offloads this heavy lifting to a background AI processor. By utilizing a hybrid model approach (combining local CNNs and cloud-based Gemini), it accurately identifies the instruments playing in each stem and automatically organizes your entire Reaper project.
 
-**The Result:** A fully structured, color-coded, and properly named Reaper session ready for mixing in minutes, saving you hours of tedious administrative work.
-
-### Quick Wins
-- **Time-saver**: Reclaims up to 30 minutes of setup time per session.
-- **Accurate**: Smart Conflict Arbiter and DSP logic prevents AI hallucinations.
-- **Non-blocking**: Keeps your DAW fully responsive during processing.
+A fully structured, color-coded, and properly named Reaper session ready for mixing in minutes, saving you hours of tedious administrative work.
 
 ---
 
@@ -75,10 +72,6 @@ You must configure your Python environment and API key before running the script
 ```env
 GEMINI_API_KEY=your_api_key_here
 ```
-
-> [!WARNING]
-> The API key **must** be configured in the `.env` file.
-
 ---
 
 ## Usage
@@ -90,8 +83,8 @@ Once installed and configured, run the **AiNOMEATOR** script from your Reaper Ac
 To get the most accurate and fastest results, we strongly recommend the following settings in the GUI:
 
 - **Analysis Backend**: Start with **Hybrid Heuristic** as your baseline, as it is generally the most accurate mode. It runs a local CNN14 (PANNs) model and cloud Gemini in parallel. However, since the optimal backend can vary based on the specific music genre and personal preferences, you are encouraged to experiment with different backends to find what works best for your workflow.
-- **Analysis Mode**: Use **Fast** for a lightweight 128kbps MP3 consisting of energy peak segments. Use **Detailed** (WAV) only for highly complex arrangements.
-- **Sort Tracks**: Enable this to automatically group and sort your tracks by instrument family. Guitars and acoustic guitars are glued together at the top, followed by Keys, Synths, Strings, Brass, Bass, Drums, and Vocals.
+- **Analysis Mode**: Use **Detailed** only for best results.
+- **Sort Tracks**: Enable this to automatically group and sort your tracks by instrument family.
 - **Parallel Tracks**: Keep the thread count low (`1` or `2`) to avoid Gemini rate limits.
 
 ---
