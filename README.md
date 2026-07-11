@@ -45,30 +45,27 @@ Follow these steps to get AiNOMEATOR running in your Reaper environment.
 
 ### Installation
 
-> [!IMPORTANT]
-> Em ambas as opções de instalação (A ou B), você **DEVE** clonar ou baixar o repositório completo do GitHub para obter a pasta `src` (com o backend em Python) e o instalador `setup.bat`. O ReaPack sozinho baixa apenas os scripts `.lua`.
-
 **Option A: ReaPack (Recommended)**
-1. Clone ou baixe este repositório completo e coloque na pasta de scripts do Reaper (geralmente sob `Scripts/AiNOMEATOR/`).
-2. No Reaper, vá em **Extensions > ReaPack > Manage repositories**.
-3. Clique em **Import a repository** e cole a URL:
+1. In Reaper, go to **Extensions > ReaPack > Manage repositories**.
+2. Click **Import a repository** and paste the following URL:
    ```text
    https://raw.githubusercontent.com/pontojasko/ReaperAiNOMEATOR/main/index.xml
    ```
-4. Clique em **OK**, depois em **Synchronize packages**.
-5. Busque por **AiNOMEATOR** no navegador do ReaPack e instale-o.
+3. Click **OK**, then **Synchronize packages**.
+4. Search for **AiNOMEATOR** in the ReaPack browser and install it.
 
 **Option B: Manual Installation**
-1. Clone ou baixe este repositório para uma pasta local (de preferência em `Scripts/AiNOMEATOR/` dentro do diretório de recursos do Reaper).
-2. Adicione o arquivo `AiNOMEATOR.lua` à sua lista de Actions do Reaper (**Actions > Show action list > New action > Load ReaScript**).
+1. Clone or download this repository to a local folder.
+2. Add `AiNOMEATOR.lua` to your Reaper Actions list (**Actions > Show action list > New action > Load ReaScript**).
 
 ### Configuration
 
-Você precisa configurar o ambiente virtual do Python e a chave de API do Gemini antes de rodar o script:
+You must configure your Python environment and API key before running the script.
 
-1. Vá até a pasta onde você clonou/baixou este repositório (ex: `Scripts/AiNOMEATOR/`).
-2. Execute o arquivo `setup.bat`. Ele criará o ambiente virtual (`venv`) e instalará automaticamente todas as dependências necessárias (incluindo PyTorch, PANNs e a biblioteca do Gemini).
-3. Abra o arquivo `.env` gerado na pasta raiz do projeto e insira sua chave de API do Gemini:
+1. Open your Reaper resource directory (**Options > Show REAPER resource path**).
+2. Navigate to the `Scripts/AiNOMEATOR/` folder.
+3. Run `setup.bat`. This will create a virtual environment (`venv`) and install all required dependencies.
+4. Open the generated `.env` file and add your Gemini API key:
 
 ```env
 GEMINI_API_KEY=your_api_key_here
