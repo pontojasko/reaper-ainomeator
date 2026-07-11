@@ -6,6 +6,12 @@
 
 Automatically identifies the primary instrument of each track in Reaper using AI (Gemini + Local Models), then applies names, colors, and icons. AiNOMEATOR keeps your DAW fully responsive by offloading the heavy lifting to background processing.
 
+<p align="center">
+  <img src="screenshots/desktop.gif" alt="AiNOMEATOR running in Reaper" width="720" />
+  <br />
+  <em>Demo — names, colors and icons applied automatically by AI</em>
+</p>
+
 ## Getting Started
 
 Follow these steps to get AiNOMEATOR running in your Reaper environment.
