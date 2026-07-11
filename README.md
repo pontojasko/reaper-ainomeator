@@ -4,7 +4,9 @@
 
 # AiNOMEATOR
 
-Automatically identifies the primary instrument of each track in Reaper using AI (Gemini + Local Models), then applies names, colors, and icons. AiNOMEATOR keeps your DAW fully responsive by offloading the heavy lifting to background processing.
+Have you ever had to export stems from your FL Studio or Ableton project into Reaper, only to find yourself dreading the tedious process of organizing and renaming dozens of messy tracks? 
+
+Introducing **AiNOMEATOR**: It automatically identifies the primary instrument of each track in Reaper using AI (Gemini + Local Models), then applies names, colors, and icons. AiNOMEATOR keeps your DAW fully responsive by offloading the heavy lifting to background processing.
 
 <p align="center">
   <img src="screenshots/script-window.png" alt="AiNOMEATOR script window" width="320" />
