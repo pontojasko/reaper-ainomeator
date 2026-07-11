@@ -2,7 +2,7 @@
   <img src="ainomeator_logo.png" alt="AiNOMEATOR logo" width="240" />
 </p>
 
-# AiNOMEATOR
+# About the project
 
 Have you ever had to export stems from your FL Studio or Ableton project into Reaper, only to find yourself dreading the tedious process of organizing and renaming dozens of messy tracks? 
 
@@ -55,7 +55,7 @@ GEMINI_API_KEY=your_api_key_here
 ```
 
 > [!WARNING]
-> The API key **must** be configured in the `.env` file. The option to input the key directly via the Reaper GUI has been removed to streamline the interface and improve security.
+> The API key **must** be configured in the `.env` file.
 
 ## Usage
 
