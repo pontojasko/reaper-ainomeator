@@ -100,12 +100,12 @@ local strings = {
     msg_api_causes = "Possible causes:\n  - setup.bat has not been run in this folder\n  - GEMINI_API_KEY is not configured in .env\n  - Python was not found in PATH",
     msg_api_causes_mb = "Failed to run AI. Possible causes:\n- setup.bat has not been run in this folder (venv/.env missing)\n- GEMINI_API_KEY not configured in .env\n- Python not found\n\nSee the Reaper console for details.",
     backend_label = "Analysis Backend:",
-    backend_gemini = "Gemini (cloud, API key required)",
+    backend_gemini = "Gemini (cloud - Less recommended, better for synths)",
     backend_yamnet = "YamNet (local, no API key)",
     backend_essentia = "Essentia (local, no API key)",
-    backend_panns = "PANNs (local, no API key)",
-    backend_hybrid_heuristic = "Hybrid Heuristic (PANNs + Gemini)",
-    backend_hybrid_chaining = "Hybrid Chaining (PANNs + Gemini review)",
+    backend_panns = "PANNs (local - Recommended)",
+    backend_hybrid_heuristic = "Hybrid Heuristic (Gemini-oriented - Less recommended)",
+    backend_hybrid_chaining = "Hybrid Chaining (PANNs-oriented - Recommended)",
     theme_label = "Color Palette / Theme:",
     theme_default = "Default (Balanced)",
     theme_green = "Forest Green",
@@ -164,12 +164,12 @@ local strings = {
     msg_api_causes = "Possiveis causas:\n  - setup.bat ainda nao foi rodado nesta pasta (venv/.env faltando)\n  - GEMINI_API_KEY nao configurada no .env\n  - Python nao encontrado no PATH",
     msg_api_causes_mb = "Falha ao rodar a IA. Possiveis causas:\n- setup.bat ainda nao foi rodado nesta pasta (venv/.env faltando)\n- GEMINI_API_KEY nao configurada no .env\n- Python nao encontrado\n\nVeja o console do Reaper para detalhes completos.",
     backend_label = "Backend de Analise:",
-    backend_gemini = "Gemini (nuvem, exige chave de API)",
+    backend_gemini = "Gemini (nuvem - Menos recomendado, melhor para synths)",
     backend_yamnet = "YamNet (local, sem chave de API)",
     backend_essentia = "Essentia (local, sem chave de API)",
-    backend_panns = "PANNs (local, sem chave de API)",
-    backend_hybrid_heuristic = "Híbrido Heurística (PANNs + Gemini)",
-    backend_hybrid_chaining = "Híbrido Encadeado (Gemini avalia PANNs)",
+    backend_panns = "PANNs (local - Recomendado)",
+    backend_hybrid_heuristic = "Híbrido Heurística (foco Gemini - Menos recomendado)",
+    backend_hybrid_chaining = "Híbrido Encadeado (foco PANNs - Recomendado)",
     theme_label = "Paleta de Cores / Tema:",
     theme_default = "Padrão (Equilibrado)",
     theme_green = "Verde Floresta",
@@ -1321,10 +1321,10 @@ local layout = {
 }
 
 local backend_options = {
-  { key = "gemini",             label_key = "backend_gemini" },
   { key = "panns",              label_key = "backend_panns" },
-  { key = "hybrid_heuristic",   label_key = "backend_hybrid_heuristic" },
+  { key = "gemini",             label_key = "backend_gemini" },
   { key = "hybrid_chaining",    label_key = "backend_hybrid_chaining" },
+  { key = "hybrid_heuristic",   label_key = "backend_hybrid_heuristic" },
 }
 
 local theme_options = {
