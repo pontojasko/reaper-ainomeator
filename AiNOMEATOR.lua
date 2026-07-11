@@ -532,6 +532,7 @@ local workers = 5
 local color_prompt = ""
 local entered_key = ""
 local script_running = true
+local inputs
 
 local function sync_api_key_to_env(api_key)
   local trimmed_key = trim(api_key)
@@ -898,11 +899,11 @@ only_selected = false
 analysis_mode = "detailed"
 local show_api_key = false
 
-local inputs = {
-  { label = t("thread_label"), val = "5", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 250, w = 110, h = 30 },
-  { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 315, w = 260, h = 30 },
-  { label = t("api_label"), val = saved_api_key, placeholder = t("api_placeholder"), is_numeric = false, is_password = true, limit = 200, x = 30, y = 380, w = 170, h = 30 },
-  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 180, y = 250, w = 110, h = 30 }
+inputs = {
+  { label = t("thread_label"), val = "5", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 340, w = 110, h = 30 },
+  { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 405, w = 260, h = 30 },
+  { label = t("api_label"), val = saved_api_key, placeholder = t("api_placeholder"), is_numeric = false, is_password = true, limit = 200, x = 30, y = 470, w = 170, h = 30 },
+  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 180, y = 340, w = 110, h = 30 }
 }
 
 local function refresh_language_labels()
@@ -1189,8 +1190,6 @@ local function draw_gui()
 
     local backend_options = {
       { key = "gemini",   label = t("backend_gemini") },
-      { key = "yamnet",   label = t("backend_yamnet") },
-      { key = "essentia", label = t("backend_essentia") },
       { key = "panns",    label = t("backend_panns") },
     }
     for i, opt in ipairs(backend_options) do
@@ -1273,7 +1272,7 @@ local function draw_gui()
     end
 
     -- Botao Mostrar/Ocultar para a API Key
-    local eye_x, eye_y, eye_w, eye_h = 210, 380, 80, 30
+    local eye_x, eye_y, eye_w, eye_h = 210, 470, 80, 30
     local eye_half_w = eye_w / 2
     local mouse_over_eye = gfx.mouse_x >= eye_x and gfx.mouse_x <= eye_x + eye_half_w and gfx.mouse_y >= eye_y and gfx.mouse_y <= eye_y + eye_h
     if mouse_over_eye then
@@ -1314,17 +1313,17 @@ local function draw_gui()
     gfx.setfont(1, "Segoe UI", 11)
     if n_jobs == 0 then
       gfx.r, gfx.g, gfx.b = 0.8, 0.6, 0.2 -- Amarelo/Dourado suave
-      gfx.x, gfx.y = 30, 412
+      gfx.x, gfx.y = 30, 508
       gfx.drawstr(t("msg_no_audio"))
     else
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65 -- Cinza suave
-      gfx.x, gfx.y = 30, 421
+      gfx.x, gfx.y = 30, 512
       local msg = string.format(t("msg_summary"), n_jobs, n_skipped)
       gfx.drawstr(msg)
     end
 
     -- Botao Analisar (Coral) - Centrado de largura total
-    local btn_x, btn_y, btn_w, btn_h = 30, 442, 260, 36
+    local btn_x, btn_y, btn_w, btn_h = 30, 535, 260, 36
     local mouse_over_run = gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h
     if mouse_over_run then
       gfx.r, gfx.g, gfx.b = 0.65, 0.1, 0.15
@@ -1347,10 +1346,10 @@ local function draw_gui()
     local note1_w = gfx.measurestr(note1)
     local note2_w = gfx.measurestr(note2)
     gfx.x = (gfx.w - note1_w) / 2
-    gfx.y = 486
+    gfx.y = 585
     gfx.drawstr(note1)
     gfx.x = (gfx.w - note2_w) / 2
-    gfx.y = 497
+    gfx.y = 596
     gfx.drawstr(note2)
 
     -- Creditos visiveis
@@ -1358,7 +1357,7 @@ local function draw_gui()
     local credit_text = "by jasko"
     local cr_w, cr_h = gfx.measurestr(credit_text)
     local cr_x = (gfx.w - cr_w) / 2
-    local cr_y = 517
+    local cr_y = 616
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.x = cr_x
     gfx.y = cr_y
@@ -1496,7 +1495,7 @@ local function update_gui()
       end
 
       -- Clique no botao Mostrar/Ocultar
-      local eye_x, eye_y, eye_w, eye_h = 210, 500, 80, 30
+      local eye_x, eye_y, eye_w, eye_h = 210, 470, 80, 30
       local eye_half_w = eye_w / 2
       if gfx.mouse_x >= eye_x and gfx.mouse_x <= eye_x + eye_half_w and gfx.mouse_y >= eye_y and gfx.mouse_y <= eye_y + eye_h then
         show_api_key = not show_api_key
@@ -1512,7 +1511,7 @@ local function update_gui()
       end
 
       -- Clique no botao ANALISAR
-      local btn_x, btn_y, btn_w, btn_h = 30, 562, 260, 36
+      local btn_x, btn_y, btn_w, btn_h = 30, 535, 260, 36
       if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
         return "run"
       end
@@ -1521,7 +1520,7 @@ local function update_gui()
       gfx.setfont(1, "Segoe UI", 10)
       local cr_w, cr_h = gfx.measurestr("by jasko")
       local cr_x = (gfx.w - cr_w) / 2
-      local cr_y = 612
+      local cr_y = 616
       if gfx.mouse_x >= cr_x and gfx.mouse_x <= cr_x + cr_w and gfx.mouse_y >= cr_y and gfx.mouse_y <= cr_y + cr_h then
         open_url("https://jasko.dev")
         return "redraw"
