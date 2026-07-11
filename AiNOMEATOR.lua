@@ -511,11 +511,12 @@ local function find_icon(icon_files, category, instrument)
   local inst_lower = (instrument or ""):lower()
   
   -- 1. Busca por palavras-chave mais específicas do instrumento primeiro (ex: acústico vs elétrico)
+  -- Nota: Usamos prefixos ASCII como "viol" e "acous" para evitar falhas de codificação UTF-8 do Lua
   local spec_kws = nil
-  if inst_lower:find("acoustic", 1, true) or inst_lower:find("violao", 1, true) or inst_lower:find("violão", 1, true) then
-    spec_kws = {"acoustic", "ac_guitar", "acguitar", "violao", "guitar"}
-  elseif inst_lower:find("electric", 1, true) or inst_lower:find("distorted", 1, true) or inst_lower:find("guitarra", 1, true) or inst_lower:find("clean", 1, true) then
-    spec_kws = {"el_guitar", "elguitar", "electric", "guitar"}
+  if inst_lower:find("acous", 1, true) or inst_lower:find("viol", 1, true) then
+    spec_kws = {"acoustic", "ac_guitar", "acguitar", "violao"}
+  elseif inst_lower:find("elect", 1, true) or inst_lower:find("distort", 1, true) or inst_lower:find("guit", 1, true) or inst_lower:find("clean", 1, true) then
+    spec_kws = {"el_guitar", "elguitar", "electric"}
   end
   
   if spec_kws then
@@ -533,8 +534,14 @@ local function find_icon(icon_files, category, instrument)
   if not keywords then return nil end
   for _, kw in ipairs(keywords) do
     for _, f in ipairs(icon_files) do
-      if f.name:lower():find(kw, 1, true) then
-        return f.full
+      local name_lower = f.name:lower()
+      if name_lower:find(kw, 1, true) then
+        -- Se estivermos procurando "guitar" geral (ou elétrica), evite casar com ícones acústicos
+        if kw == "guitar" and (name_lower:find("acoustic", 1, true) or name_lower:find("ac_guitar", 1, true) or name_lower:find("acguitar", 1, true) or name_lower:find("violao", 1, true)) then
+          -- ignora e continua procurando
+        else
+          return f.full
+        end
       end
     end
   end
