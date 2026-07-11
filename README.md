@@ -33,10 +33,15 @@ sequenceDiagram
     Lua->>Lua: Apply name, color and icon
 ```
 
-The pipeline prioritizes short, representative snippets to reduce cost, latency and context noise. Audio sent to the API is locally reduced to a higher-energy segment, converted to mono and resampled to 24 kHz before the request.
+The pipeline prioritizes short, representative snippets to reduce cost, latency and context noise. Audio is locally converted to mono, peak-normalized, reduced to a higher-energy segment and resampled to 24 kHz (or 16/32 kHz depending on the local model) before any AI processing.
 
 ## Key features
 
+- **Peak Normalization & Mono downmix** applied locally before any AI processing.
+- **Concurrent local CNN14/PANNs and cloud Gemini** execution in the Hybrid backend.
+- **Smart Conflict Arbiter** to cross-examine classification outputs.
+- **DSP Sanity Checks (FFT and envelope)** to automatically override errors.
+- **Automatic track sorting** by instrument family (guitars on top, followed by keys, synths, bass, drums, vocals, etc.).
 - Single-file or batch audio classification.
 - Reaper GUI (EN/PT) with real-time progress.
 - Reaper integration without blocking the UI.
@@ -198,6 +203,22 @@ If Reaper reports no result, check in this order:
 2. `.env` exists and contains the key.
 3. Python is accessible.
 4. The audio file actually exists.
+
+## Hybrid Architecture & DSP Sanity
+
+The project implements a **Hybrid Architecture** combining the local CNN14 (PANNs) model and cloud Gemini API in parallel:
+
+1. **Parallel Execution Layer**: Both CNN14 and Gemini run inference on the audio segment concurrently using a `ThreadPoolExecutor`. This minimizes processing delay and provides both spectral and semantic classification contexts simultaneously.
+2. **Conflict Arbiter (Matriz de Decisão)**: Evaluates classification discrepancies:
+   - *Rhythmic Priority Rule*: If CNN14 detects "vocal" but Gemini detects "shaker" (or percussion), the Arbiter names the track as shaker (Gemini excels at identifying high-frequency fricatives).
+   - *Bass Transient Rule*: If Gemini detects "piano" but CNN14 detects "bass" or "strings", it is named "Baixo Pizzicato" (CNN14 understands low-frequency body better).
+   - *Absolute Consensus*: If both return compatible families (e.g. keyboard and synth), the result is validated automatically, choosing Gemini's descriptive nomenclature.
+3. **Sanity Checker (DSP simples)**: 
+   - *Low Frequency Override*: If the main energy concentration is below 100Hz, vocal/piano tags are blocked and forced to bass/kick.
+   - *Percussive Override*: If the sound has abrupt decays and no sustain, it is forced to percussion (bateria).
+
+> [!TIP]
+> **Recommended Backend**: So far, the **Hybrid Heuristic** option is the most robust and accurate backend. However, it is highly recommended to test different backends (Gemini, YamNet, PANNs, Hybrid) in your specific project environment to find the perfect fit.
 
 ## Technical notes
 
