@@ -55,10 +55,6 @@ GEMINI_API_KEY=your_api_key_here
 ---
 
 ## Usage
-### Best Practices
-
-We recommend the following settings:
-
 - **Analysis Backend**: start with **PANNs** as your baseline. It is generally the most fast starting point. You can also test Gemini or a hybrid solution if you want to explore another/better results.
 - **Analysis Mode**: use **Detailed**.
 - **Parallel Tracks**: with Gemini, keep the thread count `1` to avoid rate limits .
