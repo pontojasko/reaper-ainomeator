@@ -87,6 +87,7 @@ local strings = {
     backend_essentia = "Essentia (local, no API key)",
     backend_panns = "PANNs (local, no API key)",
     backend_hybrid_heuristic = "Hybrid Heuristic (PANNs + Gemini)",
+    backend_hybrid_chaining = "Hybrid Chaining (PANNs + Gemini review)",
   },
   pt = {
     only_selected = "Analisar apenas faixas selecionadas",
@@ -138,6 +139,7 @@ local strings = {
     backend_essentia = "Essentia (local, sem chave de API)",
     backend_panns = "PANNs (local, sem chave de API)",
     backend_hybrid_heuristic = "Híbrido Heurística (PANNs + Gemini)",
+    backend_hybrid_chaining = "Híbrido Encadeado (Gemini avalia PANNs)",
   }
 }
 
@@ -910,6 +912,7 @@ local backend_options = {
   { key = "gemini",             label_key = "backend_gemini" },
   { key = "panns",              label_key = "backend_panns" },
   { key = "hybrid_heuristic",   label_key = "backend_hybrid_heuristic" },
+  { key = "hybrid_chaining",    label_key = "backend_hybrid_chaining" },
 }
 
 local function open_url(url)

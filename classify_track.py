@@ -200,7 +200,8 @@ def classify_audio(client, audio_path, models=None, retries_per_model=2, on_mode
 
 
 def classify_audio_bytes(client, audio_bytes, mime_type="audio/wav", models=None,
-                         retries_per_model=2, on_model_failed=None, output_language="pt"):
+                         retries_per_model=2, on_model_failed=None, output_language="pt",
+                         custom_prompt=None):
     """Manda os bytes do audio direto pro Gemini (sem passar por disco/upload)
     e retorna o dict já parseado (ou dict com 'error').
 
@@ -226,12 +227,14 @@ def classify_audio_bytes(client, audio_bytes, mime_type="audio/wav", models=None
 
     erros_por_modelo = {}
 
+    prompt_to_use = custom_prompt if custom_prompt is not None else load_prompt(output_language)
+
     for idx_modelo, model in enumerate(models):
         for tentativa in range(1, retries_per_model + 1):
             try:
                 response = client.models.generate_content(
                     model=model,
-                    contents=[load_prompt(output_language), types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)],
+                    contents=[prompt_to_use, types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)],
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                         temperature=0.1,

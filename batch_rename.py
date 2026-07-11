@@ -184,7 +184,7 @@ def _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_mode
         panns_ok = panns_result and "error" not in panns_result
         
         # Helper para chamar Gemini sob demanda
-        def call_gemini():
+        def call_gemini(custom_prompt=None):
             nonlocal tmp_light_path, tmp_mp3_path
             if not api_available or not client:
                 return {"error": "API do Gemini nao disponivel para resgate"}
@@ -218,7 +218,7 @@ def _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_mode
             return classify_audio_bytes(
                 client, audio_bytes, mime_type=mime_type,
                 models=current_models, on_model_failed=on_model_failed,
-                output_language=output_language
+                output_language=output_language, custom_prompt=custom_prompt
             )
 
         # 3. Decidir fluxo baseado no backend hibrido
@@ -239,6 +239,53 @@ def _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_mode
                     return idx, panns_result
                 return idx, gemini_result
 
+        elif backend_name == "hybrid_chaining":
+            panns_instrument = panns_result.get("instrument", "desconhecido") if panns_ok else "desconhecido"
+            panns_confidence = panns_result.get("confidence", 0.0) if panns_ok else 0.0
+            
+            if output_language == "en":
+                chaining_prompt = f"""You are a mixing and sound design expert.
+I ran this audio through an old algorithmic classifier and it suggested: '{panns_instrument}' with a confidence level of {panns_confidence:.2f}.
+
+Attention: This old classifier is unreliable with electronic sounds and often confuses synthesizers, heavy textures, and cymbals/effects (FX/ambience) with orchestral instruments or drums.
+
+Listen to the audio. If the algorithm's confidence is low, or if you notice that the texture is clearly synthetic, processed, or abstract, ignore its suggestion and use terms like 'synth lead', 'fx', 'ambience', etc. If it really sounds like an acoustic instrument played by a human, you can refine its guess.
+
+Identify the main sound source and respond ONLY with valid JSON, with no text before or after, exactly in this format:
+{{
+    "instrument": "short and specific name in English describing the timbre and role, e.g. 'distorted rhythm guitar', 'lead vocal', 'pizzicato acoustic bass', 'rhythmic chord synth', 'flute-like sampler chords'",
+    "category": "one of these exact values: vocal, guitarra, baixo, bateria, teclado, synth, sopro, cordas, outro",
+    "confidence": a number from 0.0 to 1.0 indicating your confidence in the identification,
+    "notes": "a short sentence explaining why you agreed or disagreed with the old classifier"
+}}
+"""
+            else:
+                chaining_prompt = f"""Você é um especialista em mixagem e sound design.
+Eu passei este áudio em um classificador algorítmico antigo e ele sugeriu que é: '{panns_instrument}' com nível de confiança de {panns_confidence:.2f}.
+
+Atenção: Esse classificador antigo é burro para sons eletrônicos e costuma confundir sintetizadores, texturas pesadas e efeitos (FX/ambiente) com instrumentos de orquestra ou bateria.
+
+Ouça o áudio. Se a confiança do algoritmo for baixa, ou se você notar que a textura é claramente sintética, processada ou abstrata, ignore a sugestão dele e use termos como 'synth lead', 'fx', 'ambiente', etc. Se soar realmente como um instrumento acústico tocado por um humano, você pode refinar o palpite dele.
+
+Identifique a fonte sonora principal e responda APENAS com um JSON válido, sem nenhum texto antes ou depois, exatamente neste formato:
+{{
+    "instrument": "nome curto e específico em português descrevendo o timbre e a função, ex: 'guitarra base distorcida', 'vocal principal', 'baixo acústico pizzicato', 'synth rítmico de acordes', 'flauta em acordes (sampler)'",
+    "category": "uma destas opções exatas: vocal, guitarra, baixo, bateria, teclado, synth, sopro, cordas, outro",
+    "confidence": número de 0.0 a 1.0 indicando sua confiança na identificação,
+    "notes": "uma frase curta explicando por que você concordou ou discordou do classificador antigo"
+}}
+"""
+            
+            gemini_result = call_gemini(custom_prompt=chaining_prompt)
+            if "error" not in gemini_result:
+                gemini_result["_model_usado"] = f"gemini_{gemini_result.get('_model_usado', 'hybrid')}_chaining"
+                return idx, gemini_result
+            else:
+                if panns_ok:
+                    panns_result["_model_usado"] = "panns_fallback_chaining"
+                    return idx, panns_result
+                return idx, gemini_result
+
         else:
             return idx, {"error": f"backend hibrido desconhecido: {backend_name}"}
 
@@ -256,7 +303,7 @@ def _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_mode
 def process_one(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend="gemini"):
     if backend in LOCAL_BACKENDS:
         return _process_one_local(idx, audio_path, start_sec, dur_sec, segment_seconds, quality, output_language, backend)
-    if backend == "hybrid_heuristic":
+    if backend in ("hybrid_heuristic", "hybrid_chaining"):
         return _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend)
     if not api_available:
         return idx, {"category": "outro", "instrument": "Audio", "confidence": 0.0, "_model_usado": "fallback_universal"}
@@ -455,8 +502,8 @@ def main():
                          help="Qualidade de analise: 'normal' ou 'alta'")
     parser.add_argument("--output-language", choices=["pt", "en"], default="pt",
                          help="idioma do campo instrument: pt ou en (padrao: pt)")
-    parser.add_argument("--backend", choices=["gemini", "yamnet", "essentia", "panns", "hybrid_heuristic"], default="gemini",
-                         help="backend de classificacao: gemini (API, padrao), yamnet/essentia/panns (locais), ou hibridos (heuristic)")
+    parser.add_argument("--backend", choices=["gemini", "yamnet", "essentia", "panns", "hybrid_heuristic", "hybrid_chaining"], default="gemini",
+                         help="backend de classificacao: gemini (API, padrao), yamnet/essentia/panns (locais), ou hibridos (heuristic, chaining)")
     parser.add_argument("--panns-threads", type=int, default=None,
                          help="threads internas do PyTorch (PANNs) por worker")
     args = parser.parse_args()
