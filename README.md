@@ -100,6 +100,28 @@ To get the most accurate and fastest results, we strongly recommend the followin
 
 The recommended **Hybrid Heuristic** backend relies on a triple-layer logic to prevent AI hallucinations and misclassifications:
 
+```mermaid
+graph TD
+    A[Audio Input] --> B[Mono & Peak Normalization]
+    B --> C[ThreadPoolExecutor]
+    
+    C --> D[CNN14 Local]
+    C --> E[Gemini Cloud]
+    
+    D --> F[Conflict Arbiter]
+    E --> F
+    
+    F --> G{Decision Rules}
+    G --> H[Consensus Check]
+    G --> I[Rhythmic & Sub-Bass Rules]
+    
+    H --> J[DSP Sanity Filter]
+    I --> J
+    
+    J --> K[FFT & Envelope Checks]
+    K --> L[Final Track Info]
+```
+
 1. **Parallel Execution Layer**: Both CNN14 and Gemini run concurrently, providing both spectral and semantic classification models in memory before making a decision.
 2. **Conflict Arbiter**: 
    - *Rhythmic Priority*: If CNN14 detects a vocal but Gemini detects a shaker, the Arbiter overrides to shaker (Gemini excels at identifying high-frequency fricatives).
@@ -111,6 +133,25 @@ The recommended **Hybrid Heuristic** backend relies on a triple-layer logic to p
 ### Audio Processing
 
 Audio is locally converted to mono, peak-normalized, reduced to a higher-energy segment, and resampled to 24 kHz (or 16/32 kHz depending on the local model) before any AI processing occurs. This ensures low latency, reduced costs, and minimal context noise.
+
+### Color Customization & SWS Sync
+
+Edit `reaper_ai_track_namer_colors.ini` manually (format `key = #HEX`) or use the color prompt field in the GUI to generate a palette via AI. The AI-generated file is saved as `reaper_ai_track_namer_colors_prompt.ini`.
+If you use the **SWS Extension**, run `AiNOMEATOR_sws_sync.lua` in Reaper (or `sync_sws_colors.bat` outside) to instantly copy the AiNOMEATOR palette to Reaper's native `sws-autocoloricon.ini`.
+
+### File Architecture
+
+```text
+reaper-ainomeator/
+├── AiNOMEATOR.lua              # Reaper GUI + result application
+├── AiNOMEATOR_sws_sync.lua     # ReaScript shortcut for SWS color sync
+├── batch_rename.py             # Batch processing & parallel execution
+├── classify_track.py           # Classification wrapper with Gemini
+├── audio_utils.py              # Peak norm, mono downmix, extraction
+├── sync_sws_colors.py          # Syncs palette with SWS Auto Color
+├── setup.bat                   # Creates virtual env and .env file
+└── reaper_ai_track_namer_colors.ini  # Default color palette
+```
 
 ---
 
