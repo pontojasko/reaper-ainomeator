@@ -125,6 +125,70 @@ def load_prompt(output_language="pt"):
     return build_default_prompt(output_language)
 
 
+def build_chaining_prompt(panns_result, output_language="pt"):
+    """
+    Constrói o prompt para o modo 'Híbrido com Review'.
+    Injeta o resultado do PANNs (modelo local) para que o Gemini possa refinar e polir a resposta,
+    priorizando a opinião do modelo local que possui ótima acurácia rítmica/tímbrica.
+    """
+    cat = panns_result.get("category", "desconhecida")
+    inst = panns_result.get("instrument", "desconhecido")
+    conf = panns_result.get("confidence", 0.0)
+
+    # Base prompt (system context & task instruction)
+    if output_language == "en":
+        prompt = f"""You are an expert audio reviewer organizing tracks inside a DAW.
+
+Listen to this single isolated audio track. You must classify its main sound source and output a valid JSON.
+A highly accurate local machine learning model (CNN14/PANNs) has already analyzed this track. It is very good at identifying the instrument family and rhythmic features.
+
+[LOCAL MODEL PREDICTION]
+Category: {cat}
+Instrument Details: {inst}
+Confidence: {conf}
+
+Your task is to LISTEN to the audio and REVIEW the local model's prediction.
+- DO NOT ignore the local model. Use its prediction as your strong baseline.
+- Help POLISH and refine the "instrument" description based on what you actually hear in the stem.
+- If you agree with the local model, output a polished version of its category and instrument description.
+- Only change the "category" if the local model is clearly and undeniably wrong (e.g., local model heard "vocal" but you clearly hear a "shaker/percussion").
+
+Respond ONLY with valid JSON exactly in this format:
+{{
+    "instrument": "short and specific name in English describing the timbre and role, incorporating the local model's insight but polished based on your hearing",
+    "category": "one of these exact values: vocal, guitarra, baixo, bateria, teclado, synth, sopro, cordas, outro",
+    "confidence": a number from 0.0 to 1.0 (you can increase it if you agree with the local model),
+    "notes": "a short sentence confirming how you used the local model's insight or why you disagreed"
+}}
+"""
+    else:
+        prompt = f"""Voce e um especialista em revisao de audio organizando faixas dentro de uma DAW.
+
+Ouca esta faixa de audio isolada. Voce deve classificar a fonte sonora principal e retornar APENAS um JSON valido.
+Um modelo local de machine learning de alta precisao (CNN14/PANNs) ja analisou esta faixa. Ele e muito bom em identificar a familia do instrumento e caracteristicas ritmicas.
+
+[PREVISAO DO MODELO LOCAL]
+Categoria: {cat}
+Detalhes do Instrumento: {inst}
+Confianca: {conf}
+
+Sua tarefa e OUVIR o audio e REVISAR a previsao do modelo local.
+- NAO ignore o modelo local. Use a previsao dele como sua base principal (baseline).
+- Ajude a POLIR e refinar a descricao do "instrument" (instrumento) baseado na sua propria analise da stem e na opiniao do modelo local.
+- Se voce concorda com a analise local, retorne uma versao polida da categoria e instrumento dele.
+- Mude a "category" (categoria) apenas se o modelo local estiver clara e inegavelmente errado (ex: o modelo local ouviu "vocal" mas voce ouve nitidamente uma "percussao/shaker").
+
+Responda APENAS com um JSON valido, sem markdown, exatamente neste formato:
+{{
+    "instrument": "nome curto e especifico descrevendo o timbre e a funcao, incorporando o insight do modelo local mas polido de acordo com o que voce ouviu",
+    "category": "uma destas opcoes exatas: vocal, guitarra, baixo, bateria, teclado, synth, sopro, cordas, outro",
+    "confidence": numero de 0.0 a 1.0 (voce pode aumentar a confianca se concordar com o modelo local),
+    "notes": "uma frase curta confirmando como voce usou a base do modelo local ou justificando caso tenha discordado"
+}}
+"""
+    return prompt
+
+
 def classify_track(client, audio_path, models=None, segment_seconds=8, keep_temp=False,
                     retries_per_model=2, search_start_seconds=None, search_duration_seconds=None,
                     on_model_failed=None, output_language="pt"):

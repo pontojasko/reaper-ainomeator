@@ -57,7 +57,7 @@ from google import genai
 from google.genai import types
 
 from audio_utils import extract_best_segment, downmix_resample, extract_three_peaks, convert_to_mp3_128k
-from classify_track import classify_audio_bytes, MODELOS_FALLBACK
+from classify_track import classify_audio_bytes, MODELOS_FALLBACK, build_chaining_prompt
 from yamnet_classify import classify_with_yamnet
 from essentia_classify import classify_with_essentia
 from panns_classify import classify_with_panns
@@ -446,12 +446,108 @@ def _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_mode
                 except OSError:
                     pass
 
+def _process_one_chaining(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language):
+    """
+    Processa UMA track usando a verdadeira arquitetura de Chaining:
+    1. Roda PANNs localmente.
+    2. Envia o áudio para o Gemini junto com o contexto/previsão do PANNs para review.
+    """
+    tmp_seg_path = None
+    tmp_light_path = None
+    tmp_mp3_path = None
+    try:
+        if not audio_path or not os.path.isfile(audio_path):
+            return idx, {"error": f"arquivo nao encontrado: {audio_path}"}
+
+        search_start = start_sec if start_sec is not None and start_sec >= 0 else None
+        search_dur = dur_sec if dur_sec is not None and dur_sec > 0 else None
+
+        tmp_seg_fd, tmp_seg_path = tempfile.mkstemp(suffix=".wav", prefix="ai_namer_seg_")
+        os.close(tmp_seg_fd)
+        
+        extract_best_segment(
+            audio_path, tmp_seg_path, segment_seconds=segment_seconds,
+            search_start_seconds=search_start,
+            search_duration_seconds=search_dur,
+        )
+
+        # Roda o PANNs localmente
+        panns_result = classify_with_panns(tmp_seg_path, output_language=output_language)
+        
+        if not api_available or not client:
+            if panns_result and "error" not in panns_result:
+                panns_result["_model_usado"] = "panns_only_no_api"
+                return idx, panns_result
+            return idx, {"error": "API do Gemini nao disponivel e PANNs falhou"}
+
+        # PANNs pode ter falhado
+        if panns_result and "error" in panns_result:
+            print(f"  [Chaining] PANNs falhou na track {idx}: {panns_result['error']}. Tentando apenas com Gemini.")
+            panns_result = {"category": "desconhecida", "instrument": "falha na analise local", "confidence": 0.0}
+
+        # Preparar áudio para a API do Gemini
+        if quality == "alta":
+            with open(tmp_seg_path, "rb") as f:
+                audio_bytes = f.read()
+            mime_type = "audio/wav"
+        else:
+            tmp_mp3_fd, tmp_mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="ai_namer_mp3_")
+            os.close(tmp_mp3_fd)
+            mp3_success = convert_to_mp3_128k(tmp_seg_path, tmp_mp3_path)
+            
+            if mp3_success:
+                with open(tmp_mp3_path, "rb") as f:
+                    audio_bytes = f.read()
+                mime_type = "audio/mp3"
+            else:
+                tmp_light_fd, tmp_light_path = tempfile.mkstemp(suffix=".wav", prefix="ai_namer_light_")
+                os.close(tmp_light_fd)
+                downmix_resample(tmp_seg_path, tmp_light_path)
+                with open(tmp_light_path, "rb") as f:
+                    audio_bytes = f.read()
+                mime_type = "audio/wav"
+
+        current_models = shared_models.get_models()
+        def on_model_failed(model_name):
+            shared_models.remove_model(model_name)
+
+        # Monta o prompt dinâmico usando o resultado do PANNs
+        chaining_prompt = build_chaining_prompt(panns_result, output_language=output_language)
+
+        # Envia pro Gemini com o prompt especializado
+        gemini_result = classify_audio_bytes(
+            client, audio_bytes, mime_type=mime_type,
+            models=current_models, on_model_failed=on_model_failed,
+            output_language=output_language,
+            custom_prompt=chaining_prompt
+        )
+
+        if gemini_result and "error" not in gemini_result:
+            gemini_result["_model_usado"] = "hybrid_chaining_review"
+            return idx, gemini_result
+        else:
+            # Fallback para o PANNs se Gemini falhar
+            panns_result["_model_usado"] = "panns_gemini_failed"
+            return idx, panns_result
+
+    except Exception as e:
+        return idx, {"error": f"{type(e).__name__}: {e}"}
+    finally:
+        for p in (tmp_seg_path, tmp_light_path, tmp_mp3_path):
+            if p and os.path.isfile(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
 
 def process_one(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend="gemini"):
     if backend in LOCAL_BACKENDS:
         return _process_one_local(idx, audio_path, start_sec, dur_sec, segment_seconds, quality, output_language, backend)
-    if backend in ("hybrid_heuristic", "hybrid_chaining"):
+    if backend == "hybrid_heuristic":
         return _process_one_hybrid(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend)
+    if backend == "hybrid_chaining":
+        return _process_one_chaining(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language)
     if not api_available:
         return idx, {"category": "outro", "instrument": "Audio", "confidence": 0.0, "_model_usado": "fallback_universal"}
 
