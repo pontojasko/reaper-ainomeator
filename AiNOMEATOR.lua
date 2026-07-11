@@ -507,7 +507,44 @@ local function list_icon_files(sep)
   return files
 end
 
-local function find_icon(icon_files, category)
+local function find_icon(icon_files, category, instrument)
+  if category == "bateria" then
+    local inst_lower = (instrument or ""):lower()
+    local is_digital = false
+    local digi_kws = {"machine", "eletroni", "digital", "synth", "sampler", "box", "midi", "eletrônica"}
+    for _, kw in ipairs(digi_kws) do
+      if inst_lower:find(kw, 1, true) then
+        is_digital = true
+        break
+      end
+    end
+
+    if is_digital then
+      -- Busca preferencialmente por drumbox ou machine
+      for _, f in ipairs(icon_files) do
+        local name = f.name:lower()
+        if name:find("drumbox", 1, true) or name:find("machine", 1, true) then
+          return f.full
+        end
+      end
+    else
+      -- Bateria acústica: busca drums (sem conter drumbox)
+      for _, f in ipairs(icon_files) do
+        local name = f.name:lower()
+        if name:find("drums", 1, true) and not name:find("drumbox", 1, true) then
+          return f.full
+        end
+      end
+      -- Outros matches com "drum" sem conter "drumbox"
+      for _, f in ipairs(icon_files) do
+        local name = f.name:lower()
+        if name:find("drum", 1, true) and not name:find("drumbox", 1, true) then
+          return f.full
+        end
+      end
+    end
+  end
+
   local keywords = ICON_KEYWORDS[category]
   if not keywords then return nil end
   for _, kw in ipairs(keywords) do
@@ -901,7 +938,7 @@ local function start_analysis()
             local col = config_colors[col_key] or config_colors["outro"]
             reaper.SetTrackColor(info.track, reaper.ColorToNative(col[1], col[2], col[3]) | 0x1000000)
 
-            local icon_path = find_icon(icon_files, category)
+            local icon_path = find_icon(icon_files, category, instrument)
             if icon_path then
               reaper.GetSetMediaTrackInfo_String(info.track, "P_ICON", icon_path, true)
             end
