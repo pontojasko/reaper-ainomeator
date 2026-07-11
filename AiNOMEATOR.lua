@@ -507,41 +507,13 @@ local function list_icon_files(sep)
   return files
 end
 
-local function find_icon(icon_files, category, instrument)
-  local inst_lower = (instrument or ""):lower()
-  
-  -- 1. Busca por palavras-chave mais específicas do instrumento primeiro (ex: acústico vs elétrico)
-  -- Nota: Usamos prefixos ASCII como "viol" e "acous" para evitar falhas de codificação UTF-8 do Lua
-  local spec_kws = nil
-  if inst_lower:find("acous", 1, true) or inst_lower:find("viol", 1, true) then
-    spec_kws = {"acoustic", "ac_guitar", "acguitar", "violao"}
-  elseif inst_lower:find("elect", 1, true) or inst_lower:find("distort", 1, true) or inst_lower:find("guit", 1, true) or inst_lower:find("clean", 1, true) then
-    spec_kws = {"el_guitar", "elguitar", "electric"}
-  end
-  
-  if spec_kws then
-    for _, kw in ipairs(spec_kws) do
-      for _, f in ipairs(icon_files) do
-        if f.name:lower():find(kw, 1, true) then
-          return f.full
-        end
-      end
-    end
-  end
-
-  -- 2. Fallback para palavras-chave da categoria geral
+local function find_icon(icon_files, category)
   local keywords = ICON_KEYWORDS[category]
   if not keywords then return nil end
   for _, kw in ipairs(keywords) do
     for _, f in ipairs(icon_files) do
-      local name_lower = f.name:lower()
-      if name_lower:find(kw, 1, true) then
-        -- Se estivermos procurando "guitar" geral (ou elétrica), evite casar com ícones acústicos
-        if kw == "guitar" and (name_lower:find("acoustic", 1, true) or name_lower:find("ac_guitar", 1, true) or name_lower:find("acguitar", 1, true) or name_lower:find("violao", 1, true)) then
-          -- ignora e continua procurando
-        else
-          return f.full
-        end
+      if f.name:lower():find(kw, 1, true) then
+        return f.full
       end
     end
   end
@@ -563,9 +535,6 @@ local function sort_project_tracks(track_categories, track_instruments)
     local _, tr_name = reaper.GetTrackName(tr)
     tr_name = tr_name or ""
 
-    local inst_lower = instrument:lower()
-    local name_lower = tr_name:lower()
-
     -- Check if it is a folder or utility track to adjust categories
     local is_folder = reaper.GetMediaTrackInfo_Value(tr, "I_FOLDERDEPTH") == 1
     if is_folder then
@@ -575,11 +544,6 @@ local function sort_project_tracks(track_categories, track_instruments)
       local key_by_name = get_color_key("", "", tr_name)
       if key_by_name == "efeitos" then
         category = "efeitos"
-      -- Se contiver palavras-chave de guitarra no nome do instrumento ou da track (e não for baixo), força categoria guitarra para agrupá-las no topo
-      elseif (inst_lower:find("guitar", 1, true) or inst_lower:find("violao", 1, true) or inst_lower:find("violão", 1, true) or inst_lower:find("guitarra", 1, true) or
-              name_lower:find("guitar", 1, true) or name_lower:find("violao", 1, true) or name_lower:find("violão", 1, true) or name_lower:find("guitarra", 1, true)) and
-             not (inst_lower:find("bass", 1, true) or inst_lower:find("baixo", 1, true) or name_lower:find("bass", 1, true) or name_lower:find("baixo", 1, true)) then
-        category = "guitarra"
       end
     end
 
@@ -624,7 +588,15 @@ local function sort_project_tracks(track_categories, track_instruments)
     if a.weight ~= b.weight then
       return a.weight < b.weight
     end
-    -- same category, sort by instrument name
+    -- within category "guitarra" (weight 10), group core guitars/violões together
+    if a.weight == 10 then
+      local a_is_core = (a.instrument:find("guitar", 1, true) or a.instrument:find("violao", 1, true) or a.instrument:find("violão", 1, true) or a.name:find("guitar", 1, true) or a.name:find("violao", 1, true) or a.name:find("violão", 1, true)) and 1 or 2
+      local b_is_core = (b.instrument:find("guitar", 1, true) or b.instrument:find("violao", 1, true) or b.instrument:find("violão", 1, true) or b.name:find("guitar", 1, true) or b.name:find("violao", 1, true) or b.name:find("violão", 1, true)) and 1 or 2
+      if a_is_core ~= b_is_core then
+        return a_is_core < b_is_core
+      end
+    end
+    -- same category and sub-group, sort by instrument name
     if a.instrument ~= b.instrument then
       return a.instrument < b.instrument
     end
@@ -929,7 +901,7 @@ local function start_analysis()
             local col = config_colors[col_key] or config_colors["outro"]
             reaper.SetTrackColor(info.track, reaper.ColorToNative(col[1], col[2], col[3]) | 0x1000000)
 
-            local icon_path = find_icon(icon_files, category, instrument)
+            local icon_path = find_icon(icon_files, category)
             if icon_path then
               reaper.GetSetMediaTrackInfo_String(info.track, "P_ICON", icon_path, true)
             end
