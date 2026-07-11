@@ -916,7 +916,7 @@ local function start_analysis()
     end
   end
 
-  local batch_script = script_dir .. "batch_rename.py"
+  local batch_script = script_dir .. "src" .. sep .. "batch_rename.py"
 
   local work_dir = reaper.GetResourcePath() .. sep .. "reaper-ai-namer_tmp"
   reaper.RecursiveCreateDirectory(work_dir, 0)
@@ -1355,7 +1355,7 @@ local logo_w, logo_h = 0, 0
 local logo_buffer = 1
 
 local function load_logo()
-  local logo_path = script_dir .. "ainomeator_logo.png"
+  local logo_path = script_dir .. "src" .. sep .. "ainomeator_logo.png"
   local res = gfx.loadimg(logo_buffer, logo_path)
   if res >= 0 then
     logo_w, logo_h = gfx.getimgdim(logo_buffer)

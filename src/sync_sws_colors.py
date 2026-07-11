@@ -114,9 +114,11 @@ def main():
     sws_ini_path = os.path.join(reaper_resource_dir, 'sws-autocoloricon.ini')
     sws_ini_backup = os.path.join(reaper_resource_dir, 'sws-autocoloricon_backup.ini')
     
-    # 3. Carrega as cores do usuário
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    colors_ini_path = os.path.join(script_dir, 'reaper_ai_track_namer_colors.ini')
+    parent_dir = os.path.dirname(script_dir)
+    colors_ini_path = os.path.join(parent_dir, 'reaper_ai_track_namer_colors.ini')
+    if not os.path.exists(colors_ini_path):
+        colors_ini_path = os.path.join(script_dir, 'reaper_ai_track_namer_colors.ini')
     colors = load_colors_ini(colors_ini_path)
     
     # 4. Define as regras da IA com prioridade (do mais específico ao mais geral)

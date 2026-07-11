@@ -9,7 +9,7 @@ echo Ativando ambiente virtual...
 call venv\Scripts\activate.bat
 
 echo Instalando dependencias...
-pip install -r requirements.txt
+pip install -r src\requirements.txt
 
 if not exist ".env" (
     echo GEMINI_API_KEY=coloque_sua_chave_aqui > .env

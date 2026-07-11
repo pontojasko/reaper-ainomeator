@@ -155,6 +155,10 @@ def classify_with_panns(audio_path, output_language="pt"):
         try:
             from dotenv import load_dotenv
             load_dotenv()
+            _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+            _PARENT_ENV = os.path.join(os.path.dirname(_SCRIPT_DIR), ".env")
+            if os.path.exists(_PARENT_ENV):
+                load_dotenv(_PARENT_ENV)
         except ImportError:
             pass
         panns_threads = os.environ.get("PANNS_THREADS")

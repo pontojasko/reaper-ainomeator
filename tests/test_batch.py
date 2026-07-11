@@ -15,13 +15,18 @@ Isso evita descobrir que o prompt esta ruim so depois de integrar com o Reaper.
 """
 
 import os
+import sys
 import json
 from dotenv import load_dotenv
 from google import genai
 
+# Adiciona a pasta src ao caminho de busca do Python
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(_SCRIPT_DIR, "..", "src")))
+
 from classify_track import classify_track, CATEGORIAS_VALIDAS
 
-SAMPLES_DIR = "samples"
+SAMPLES_DIR = os.path.join(_SCRIPT_DIR, "samples")
 
 # Preencha com os nomes dos seus arquivos de teste e a categoria correta esperada.
 # Exemplo:

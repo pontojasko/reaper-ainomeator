@@ -3,12 +3,23 @@
   <category name="AI">
     <reapack name="AiNOMEATOR.lua" type="script" desc="AiNOMEATOR — AI track namer, colorer and icon setter for REAPER using Gemini">
       <metadata>
-        <description><![CDATA[Automatically identifies the primary instrument of each track in Reaper using Gemini, then applies a name, color and icon — with a GUI and background processing that keeps the DAW responsive.
+        <description><![CDATA[Automatically identifies the primary instrument of each track in Reaper using Gemini, then applies a name, color and icon.
 
-Requirements:
-- Python 3.9+ in PATH
-- A Gemini API key
-- Run setup.bat after installation to create the venv and .env file]]></description>
+[EN] IMPORTANT REQUIREMENT:
+This script relies on a Python backend. To run it:
+1. Ensure you have Python 3.9+ installed and added to your system PATH.
+2. If you installed via ReaPack, you MUST clone or download the full repository from GitHub (https://github.com/pontojasko/ReaperAiNOMEATOR) to get the "src" folder and "setup.bat".
+3. Place all files in your Reaper Scripts folder under "/AiNOMEATOR" (so you have AiNOMEATOR.lua, setup.bat, and the "src" directory in the same folder).
+4. Run "setup.bat" inside that folder to create the virtual environment and install dependencies.
+5. Open the generated ".env" file in the same folder and add: GEMINI_API_KEY=your_key
+
+[PT] REQUISITO IMPORTANTE:
+Este script depende de um backend em Python. Para fazê-lo funcionar:
+1. Certifique-se de ter o Python 3.9+ instalado e no PATH do sistema.
+2. Se você instalou pelo ReaPack, você DEVE baixar/clonar o repositório completo do GitHub (https://github.com/pontojasko/ReaperAiNOMEATOR) para obter a pasta "src" e o "setup.bat".
+3. Coloque todos os arquivos na sua pasta de Scripts do Reaper dentro de "/AiNOMEATOR" (de modo que AiNOMEATOR.lua, setup.bat e a pasta "src" fiquem na mesma pasta).
+4. Execute o "setup.bat" dentro dessa pasta para criar o ambiente virtual (venv) e instalar as dependências.
+5. Abra o arquivo ".env" gerado na mesma pasta e adicione: GEMINI_API_KEY=sua_chave]]></description>
         <link rel="website">https://github.com/pontojasko/ReaperAiNOMEATOR</link>
         <link rel="donation">https://github.com/pontojasko/ReaperAiNOMEATOR</link>
       </metadata>

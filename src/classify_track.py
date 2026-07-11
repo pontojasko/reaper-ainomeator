@@ -46,6 +46,10 @@ CATEGORIAS_VALIDAS = [
 # monofonicos). A diferenca de latencia pro flash-lite e pequena e compensa
 # pela reducao de erros de classificacao em trechos ambiguos.
 load_dotenv()
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PARENT_ENV = os.path.join(os.path.dirname(_SCRIPT_DIR), ".env")
+if os.path.exists(_PARENT_ENV):
+    load_dotenv(_PARENT_ENV)
 
 # Tenta ler do .env os modelos preferidos pelo usuário, caso contrário usa a ordem padrão
 model_env = os.environ.get("GEMINI_MODELS")
@@ -305,6 +309,8 @@ def main():
     models = args.models.split(",") if args.models else None
 
     load_dotenv()
+    if os.path.exists(_PARENT_ENV):
+        load_dotenv(_PARENT_ENV)
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("ERRO: variavel GEMINI_API_KEY nao encontrada.")

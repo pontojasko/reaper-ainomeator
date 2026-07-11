@@ -35,7 +35,7 @@ else
   end
 end
 
-local sync_script = script_dir .. "sync_sws_colors.py"
+local sync_script = script_dir .. "src" .. (is_windows and "\\" or "/") .. "sync_sws_colors.py"
 
 local launch_cmd
 if is_windows then

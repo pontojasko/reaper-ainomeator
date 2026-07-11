@@ -3,6 +3,8 @@ REM Testa a classificacao em UM arquivo de audio.
 REM Uso: arraste um arquivo de audio em cima deste .bat, ou rode:
 REM   test_single.bat caminho\do\audio.wav
 
+cd /d "%~dp0\.."
+
 if "%~1"=="" (
     echo Uso: test_single.bat caminho\para\audio.wav
     echo Ou arraste um arquivo de audio em cima deste .bat
@@ -11,5 +13,5 @@ if "%~1"=="" (
 )
 
 call venv\Scripts\activate.bat
-python classify_track.py "%~1"
+python src\classify_track.py "%~1"
 pause

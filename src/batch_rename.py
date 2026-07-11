@@ -668,6 +668,10 @@ def main():
     args = parser.parse_args()
 
     load_dotenv()
+    _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    _PARENT_ENV = os.path.join(os.path.dirname(_SCRIPT_DIR), ".env")
+    if os.path.exists(_PARENT_ENV):
+        load_dotenv(_PARENT_ENV)
     if args.panns_threads is not None and args.panns_threads > 0:
         os.environ["PANNS_THREADS"] = str(args.panns_threads)
     api_key = os.environ.get("GEMINI_API_KEY")
