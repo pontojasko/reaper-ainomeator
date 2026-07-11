@@ -117,6 +117,22 @@ local strings = {
     theme_vintage = "Vintage Warm",
     theme_custom = "Custom AI Prompt (Set below)",
     theme_prompt_disabled = "[Change theme to 'Custom AI' to edit]",
+    tip_lang_en = "Switch interface language to English.",
+    tip_lang_pt = "Switch interface language to Portuguese.",
+    tip_only_selected = "Only analyze tracks that are currently selected in Reaper.",
+    tip_sort_tracks = "Automatically sort your tracks in the Reaper project by instrument name.",
+    tip_mode_fast = "Fast: Analyzes short 8s to 12s segments of the audio to speed up processing.",
+    tip_mode_detailed = "Detailed: Analyzes the entire audio file or original source item for higher accuracy.",
+    tip_backend_panns = "PANNs: Uses your local CPU. Extremely fast, very accurate. No API key needed.",
+    tip_backend_hybrid_chaining = "Hybrid Chaining: Runs PANNs local model first, then sends result to Gemini to review and polish details.",
+    tip_backend_gemini = "Gemini: Cloud API. Good at identifying complex synth timbres, but requires an active API key.",
+    tip_backend_hybrid_heuristic = "Hybrid Heuristic: Runs PANNs and Gemini concurrently and resolves conflicts with coded heuristics.",
+    tip_theme = "Choose a color palette theme for your tracks in Reaper.",
+    tip_colors_prompt = "Custom Prompt to override the color definitions. Leave empty to use default colors.ini.",
+    tip_api_key = "Enter your Google Gemini API Key here (starts with AIzaSy). Press Save to keep it.",
+    tip_threads_cpu = "Number of parallel requests for Gemini cloud API.",
+    tip_local_threads = "Number of CPU threads to use for local models.",
+    tip_btn_analyze = "Start the analysis and rename/recolor your tracks!",
   },
   pt = {
     only_selected = "Apenas sel.",
@@ -181,6 +197,22 @@ local strings = {
     theme_vintage = "Vintage Quente",
     theme_custom = "Custom IA Prompt (Defina abaixo)",
     theme_prompt_disabled = "[Mude o tema para 'Custom IA' para editar]",
+    tip_lang_en = "Mudar o idioma da interface para Inglês.",
+    tip_lang_pt = "Mudar o idioma da interface para Português.",
+    tip_only_selected = "Analisa apenas as faixas que estiverem selecionadas no momento no Reaper.",
+    tip_sort_tracks = "Ordena as faixas no projeto do Reaper em ordem alfabética por nome de instrumento após a análise.",
+    tip_mode_fast = "Rápido: Analisa trechos curtos de 8s a 12s do áudio para agilizar o processamento.",
+    tip_mode_detailed = "Detalhado: Analisa o arquivo inteiro ou item original completo para maior precisão.",
+    tip_backend_panns = "PANNs: Executado localmente na CPU. Rápido e preciso. Não precisa de chave API.",
+    tip_backend_hybrid_chaining = "Híbrido Encadeado: Roda o PANNs local primeiro e passa a previsão para o Gemini revisar e enriquecer os detalhes.",
+    tip_backend_gemini = "Gemini: API na nuvem. Bom para timbres complexos e synths, mas exige chave API configurada.",
+    tip_backend_hybrid_heuristic = "Híbrido Heurística: Roda PANNs e Gemini em paralelo e resolve conflitos usando regras heurísticas fixas.",
+    tip_theme = "Escolha a paleta de cores ou tema que será aplicada às faixas no Reaper.",
+    tip_colors_prompt = "Prompt customizado de IA para redefinir as cores das tracks. Deixe em branco para usar as cores padrão.",
+    tip_api_key = "Insira sua Chave de API do Gemini aqui (começa com AIzaSy). Clique em Salvar para mantê-la no sistema.",
+    tip_threads_cpu = "Número de requisições simultâneas para a API do Gemini.",
+    tip_local_threads = "Número de threads de CPU para os modelos locais.",
+    tip_btn_analyze = "Iniciar análise para nomear e colorir suas faixas!",
   }
 }
 
@@ -1542,6 +1574,7 @@ local function update_analysis_summary_cached()
 end
 
 local function draw_gui()
+  local tooltip_to_draw = nil
   -- Fundo escuro (#1E1E1E)
   gfx.r, gfx.g, gfx.b = 0.12, 0.12, 0.12
   gfx.rect(0, 0, gfx.w, gfx.h, 1)
@@ -1568,6 +1601,9 @@ local function draw_gui()
     -- Radio de idioma no topo
     local en = layout.lang_en
     local pt = layout.lang_pt
+    if in_rect(en.x, en.y, en.w, en.h) then tooltip_to_draw = t("tip_lang_en") end
+    if in_rect(pt.x, pt.y, pt.w, pt.h) then tooltip_to_draw = t("tip_lang_pt") end
+
     gfx.setfont(1, "Segoe UI", 10)
     gfx.r, gfx.g, gfx.b = 0.78, 0.78, 0.78
     gfx.x, gfx.y = en.radio_x + 12, en.radio_y - 7
@@ -1587,6 +1623,7 @@ local function draw_gui()
 
     -- Checkbox "Apenas faixas selecionadas"
     local opt = layout.only_selected
+    if in_rect(opt.x, opt.y, opt.w, opt.h) then tooltip_to_draw = t("tip_only_selected") end
     gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
     gfx.rect(opt.cb_x, opt.cb_y, opt.cb_size, opt.cb_size, 1) -- fill
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
@@ -1603,6 +1640,7 @@ local function draw_gui()
 
     -- Checkbox "Ordenar por instrumento"
     local opt_s = layout.sort_tracks
+    if in_rect(opt_s.x, opt_s.y, opt_s.w, opt_s.h) then tooltip_to_draw = t("tip_sort_tracks") end
     gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
     gfx.rect(opt_s.cb_x, opt_s.cb_y, opt_s.cb_size, opt_s.cb_size, 1) -- fill
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
@@ -1630,6 +1668,7 @@ local function draw_gui()
 
     -- Radio 1: "Análise rápida de pequena amostra"
     local r1 = layout.mode_fast
+    if in_rect(r1.x, r1.y, r1.w, r1.h) then tooltip_to_draw = t("tip_mode_fast") end
     gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
     gfx.rect(r1.cb_x, r1.cb_y, r1.cb_size, r1.cb_size, 1)
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
@@ -1644,6 +1683,7 @@ local function draw_gui()
 
     -- Radio 2: "Análise detalhada"
     local r2 = layout.mode_detailed
+    if in_rect(r2.x, r2.y, r2.w, r2.h) then tooltip_to_draw = t("tip_mode_detailed") end
     gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
     gfx.rect(r2.cb_x, r2.cb_y, r2.cb_size, r2.cb_size, 1)
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
@@ -1670,6 +1710,9 @@ local function draw_gui()
     local cb_x, cb_size = layout.backend_cb_x, layout.backend_cb_size
     for i, opt in ipairs(backend_options) do
       local opt_y = layout.backend_start_y + (i - 1) * layout.backend_spacing_y
+      if in_rect(cb_x, opt_y, 250, cb_size) then
+        tooltip_to_draw = t("tip_backend_" .. opt.key)
+      end
       gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
       gfx.rect(cb_x, opt_y, cb_size, cb_size, 1)
       gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
@@ -1700,6 +1743,7 @@ local function draw_gui()
     local ts = layout.theme_selector
     local mouse_over_ts = in_rect(ts.x, ts.y, ts.w, ts.h)
     if mouse_over_ts then
+      tooltip_to_draw = t("tip_theme")
       gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
     else
       gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
@@ -1723,6 +1767,16 @@ local function draw_gui()
 
     -- Campos de Texto
     for i, inp in ipairs(inputs) do
+      if in_rect(inp.x, inp.y, inp.w, inp.h) then
+        if i == 1 then
+          tooltip_to_draw = t("tip_threads_cpu")
+        elseif i == 2 then
+          tooltip_to_draw = t("tip_colors_prompt")
+        elseif i == 3 then
+          tooltip_to_draw = t("tip_local_threads")
+        end
+      end
+
       -- Label
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
       gfx.x, gfx.y = inp.x, inp.y - 20
@@ -1807,6 +1861,7 @@ local function draw_gui()
     local btn = layout.analyze
     local mouse_over_run = in_rect(btn.x, btn.y, btn.w, btn.h)
     if mouse_over_run then
+      tooltip_to_draw = t("tip_btn_analyze")
       gfx.r, gfx.g, gfx.b = 0.65, 0.1, 0.15
     else
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
@@ -1903,6 +1958,23 @@ local function draw_gui()
     gfx.x = btn.x + (btn.w - tw)/2
     gfx.y = btn.y + (btn.h - th)/2
     gfx.drawstr(t("btn_close"))
+  end
+
+  if tooltip_to_draw then
+    gfx.setfont(1, "Segoe UI", 10)
+    local t_w, t_h = gfx.measurestr(tooltip_to_draw)
+    local tx = gfx.mouse_x + 15
+    local ty = gfx.mouse_y + 15
+    if tx + t_w + 10 > gfx.w then tx = gfx.w - t_w - 10 end
+    if ty + t_h + 10 > gfx.h then ty = gfx.mouse_y - t_h - 10 end
+    gfx.r, gfx.g, gfx.b = 0.18, 0.18, 0.18
+    gfx.rect(tx, ty, t_w + 10, t_h + 6, 1)
+    gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+    gfx.rect(tx, ty, t_w + 10, t_h + 6, 0)
+    gfx.r, gfx.g, gfx.b = 0.9, 0.9, 0.9
+    gfx.x = tx + 5
+    gfx.y = ty + 3
+    gfx.drawstr(tooltip_to_draw)
   end
 
   gfx.update()
