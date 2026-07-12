@@ -61,7 +61,7 @@ When you launch `AiNOMEATOR.lua` in Reaper, you will be greeted by a simple inte
 
 - **LETS NOMEATE!**: Main thing here
 - **EN / PT**: Toggle between English and Portuguese localization for the UI and generated names/colors.
-- **[Advanced Options [+]](https://github.com/pontojasko/ainomeator/edit/main/README.md#advanced-options)**: Click to expand the window and have fun with advanced features.
+- **[Advanced Options [+]](https://github.com/pontojasko/ainomeator/tree/main#advanced-options)**: Click to expand the window and have fun with advanced features.
 
 ---
 
