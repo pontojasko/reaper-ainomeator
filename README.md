@@ -44,7 +44,7 @@
 You just have to configure your API key in .env if you want gemini or hybrid analysis.
 
 ```env
-GEMINI_API_KEY=your_google_beautiful_secret_really_hyper_google_secret_api_key_here
+GEMINI_API_KEY=your_google_beautiful_secret_really_hyper_google_secret_api_key_here_just_in_case
 ```
 ---
 
