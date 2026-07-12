@@ -15,16 +15,6 @@
   <img src="screenshots/desktop.gif" alt="AiNOMEATOR running in Reaper" width="720" />
   <br />
   <em>Demo — names, colors and icons applied automatically by AI</em>
-  <br />
-  <br />
-
-  <p align="center">
-    <img src="screenshots/compactedmod.png" alt="AiNOMEATOR Compact UI" width="320" valign="top" />
-    &nbsp;&nbsp;&nbsp;&nbsp;
-    <img src="screenshots/advancedoptions.png" alt="AiNOMEATOR Advanced Options" width="320" valign="top" />
-    <br />
-    <em>Left: Compact UI &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; Right: Advanced Options (expanded view)</em>
-  </p>
 </div>
 
 ---
@@ -65,9 +55,36 @@ GEMINI_API_KEY=your_api_key_here
 ---
 
 ## Usage
-- **Analysis Backend**: start with **PANNs** as your baseline. It is generally the most fast starting point. You can also test Gemini or a hybrid solution if you want to explore another/better results.
-- **Analysis Mode**: use **Detailed**.
-- **Parallel Tracks**: with Gemini, keep the thread count `1` to avoid rate limits .
+
+When you launch `AiNOMEATOR.lua` in Reaper, you will be greeted by a simple, clean, and distraction-free interface:
+
+<p align="center">
+  <img src="screenshots/compactedmod.png" alt="AiNOMEATOR Compact UI" width="280" />
+  <br />
+  <em>Compact Mode</em>
+</p>
+
+### ⚡ Quick Execution
+- **LETS NOMEATE!**: Click the main button to instantly analyze, name, and color all tracks using your current baseline options.
+- **EN / PT**: Toggle between English and Portuguese localization for the UI and generated names/colors.
+- **Advanced Options [+]**: Click to expand the window and configure advanced features.
+
+---
+
+### ⚙️ Advanced Options
+
+Expanding the settings panel allows you to customize the underlying AI models and performance options:
+
+<p align="center">
+  <img src="screenshots/advancedoptions.png" alt="AiNOMEATOR Advanced Options" width="280" />
+  <br />
+  <em>Advanced Options Panel</em>
+</p>
+
+- **Analysis Backend**: Start with **PANNs** (local CNN) as your baseline. Test cloud-based **Gemini** or **Hybrid** configurations for different/more precise classification results.
+- **Analysis Mode**: Keep it on **Detailed** for higher quality or switch to **Fast** if you have a huge number of stems.
+- **Parallel & Local Threads**: When using Gemini, keep the parallel count low (like `1` or `2`) to prevent API rate limits. For local PANNs models, set local threads according to your CPU.
+- **Color Customization**: Select a pre-configured theme (like *Vintage Warm*) or write a custom prompt to let AI design your track colors automatically.
 
 ---
 
