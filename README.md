@@ -59,7 +59,7 @@ GEMINI_API_KEY=your_api_key_here
 When you launch `AiNOMEATOR.lua` in Reaper, you will be greeted by a simple, clean, and distraction-free interface:
 
 <p align="center">
-  <img src="screenshots/compactedmod.gif" alt="AiNOMEATOR Compact UI" width="280" />
+  <img src="screenshots/compactedmod.gif" alt="AiNOMEATOR Compact UI"/>
   <br />
   <em>Compact Mode</em>
 </p>
