@@ -41,16 +41,16 @@
 
 ### Configuration
 
-You must configure your API key if you want to run gemini or hybrid analysis.
+You just have to configure your API key in .env if you want gemini or hybrid analysis.
 
 ```env
-GEMINI_API_KEY=your_api_key_here
+GEMINI_API_KEY=your_google_beautiful_secret_really_hyper_google_secret_api_key_here
 ```
 ---
 
 ## Usage
 ### Quick Execution
-When you launch `AiNOMEATOR.lua` in Reaper, you will be greeted by a simple, clean, and distraction-free interface:
+When you launch `AiNOMEATOR.lua` in Reaper, you will be greeted by a simple interface:
 
 <p align="center">
   <img src="screenshots/compactedmod.gif" alt="AiNOMEATOR Compact UI"/>
@@ -59,9 +59,9 @@ When you launch `AiNOMEATOR.lua` in Reaper, you will be greeted by a simple, cle
 </p>
 
 
-- **LETS NOMEATE!**: Click the main button to instantly analyze, name, and color all tracks using your current baseline options.
+- **LETS NOMEATE!**: Main thing here
 - **EN / PT**: Toggle between English and Portuguese localization for the UI and generated names/colors.
-- **Advanced Options [+]**: Click to expand the window and configure advanced features.
+- **[Advanced Options [+]](https://github.com/pontojasko/ainomeator/edit/main/README.md#advanced-options)**: Click to expand the window and have fun with advanced features.
 
 ---
 
@@ -77,10 +77,11 @@ Expanding the settings panel allows you to customize the underlying AI models an
   <em>Left: Advanced Options Panel &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; Right: Analysis Status</em>
 </p>
 
-- **Analysis Mode**: use **Detailed**.
-- **Analysis Backend**: start with **PANNs** as your baseline. It is generally the most fast starting point. You can also test Gemini or a hybrid solution if you are working with synth-based mysic like House or want to explore another results.
-- **Parallel Tracks**: with Gemini, keep the thread count `1` to avoid rate limits.
-- **Local Threads**: bigger better. 
+#### Some tips
+
+- **Analysis Mode**: **Detailed** is still a pretty fast option.
+- **Analysis Backend**: start with **PANNs** as your baseline. It is generally the most fast starting point. You can also test Gemini or a hybrid solution if you are working with synth-based music or want to explore another results.
+- **Local Threads**: **the.more.the.merrier**
 
 ---
 
