@@ -1556,9 +1556,9 @@ only_selected = false
 sort_tracks = (saved_sort_tracks == "true")
 analysis_mode = "detailed"
 inputs = {
-  { label = t("thread_label"), val = "1", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 420, w = 110, h = 30 },
+  { label = t("thread_label"), val = "1", placeholder = "1-20", is_numeric = true, limit = 2, x = -1000, y = -1000, w = 1, h = 1 },
   { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 570, w = 260, h = 30 },
-  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 180, y = 420, w = 110, h = 30 }
+  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 30, y = 420, w = 260, h = 30 }
 }
 
 local function refresh_language_labels()
@@ -2664,6 +2664,9 @@ local function update_gui()
       focused_input = focused_input + 1
       if focused_input > #inputs then
         focused_input = 1
+      end
+      if focused_input == 1 then
+        focused_input = 2
       end
     elseif char == 22 then -- Ctrl + V (Colar se SWS disponivel)
       if reaper.CF_GetClipboard then
