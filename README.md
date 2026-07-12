@@ -64,14 +64,14 @@ When you launch `AiNOMEATOR.lua` in Reaper, you will be greeted by a simple, cle
   <em>Compact Mode</em>
 </p>
 
-### ⚡ Quick Execution
+### Quick Execution
 - **LETS NOMEATE!**: Click the main button to instantly analyze, name, and color all tracks using your current baseline options.
 - **EN / PT**: Toggle between English and Portuguese localization for the UI and generated names/colors.
 - **Advanced Options [+]**: Click to expand the window and configure advanced features.
 
 ---
 
-### ⚙️ Advanced Options
+### Advanced Options
 
 Expanding the settings panel allows you to customize the underlying AI models and performance options:
 
@@ -81,10 +81,9 @@ Expanding the settings panel allows you to customize the underlying AI models an
   <em>Advanced Options Panel</em>
 </p>
 
-- **Analysis Backend**: Start with **PANNs** (local CNN) as your baseline. Test cloud-based **Gemini** or **Hybrid** configurations for different/more precise classification results.
-- **Analysis Mode**: Keep it on **Detailed** for higher quality or switch to **Fast** if you have a huge number of stems.
-- **Parallel & Local Threads**: When using Gemini, keep the parallel count low (like `1` or `2`) to prevent API rate limits. For local PANNs models, set local threads according to your CPU.
-- **Color Customization**: Select a pre-configured theme (like *Vintage Warm*) or write a custom prompt to let AI design your track colors automatically.
+- **Analysis Backend**: start with **PANNs** as your baseline. It is generally the most fast starting point. You can also test Gemini or a hybrid solution if you want to explore another/better results.
+- **Analysis Mode**: use **Detailed**.
+- **Parallel Tracks**: with Gemini, keep the thread count `1` to avoid rate limits .
 
 ---
 
