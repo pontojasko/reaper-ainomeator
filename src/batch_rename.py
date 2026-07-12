@@ -541,7 +541,10 @@ def _process_one_chaining(client, idx, audio_path, start_sec, dur_sec, shared_mo
                     pass
 
 
-def process_one(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend="gemini"):
+def process_one(client, idx, audio_path, start_sec, dur_sec, shared_models, segment_seconds, quality, api_available, output_language, backend="gemini", cancel_flag=None):
+    import os
+    if cancel_flag and os.path.exists(cancel_flag):
+        return idx, {"error": "cancelled"}
     if backend in LOCAL_BACKENDS:
         return _process_one_local(idx, audio_path, start_sec, dur_sec, segment_seconds, quality, output_language, backend)
     if backend == "hybrid_heuristic":
@@ -841,12 +844,17 @@ def main():
     t0 = time.time()
     done = 0
 
+    cancel_flag = args.done_flag.replace("done_", "cancel_") if args.done_flag else None
+
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         futures = {
-            pool.submit(process_one, client, idx, path, start, dur, shared_models, args.segment_seconds, args.quality, api_available, args.output_language, args.backend): idx
+            pool.submit(process_one, client, idx, path, start, dur, shared_models, args.segment_seconds, args.quality, api_available, args.output_language, args.backend, cancel_flag): idx
             for idx, path, start, dur in entries
         }
         for future in as_completed(futures):
+            if cancel_flag and os.path.exists(cancel_flag):
+                print("Cancellation detected. Stopping.")
+                break
             idx, result = future.result()
             results[idx] = result
             done += 1

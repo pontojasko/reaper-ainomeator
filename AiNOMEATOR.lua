@@ -52,6 +52,9 @@ if saved_sort_tracks == "" then saved_sort_tracks = "false" end
 local current_theme = reaper.GetExtState("AiNOMEATOR", "theme")
 if current_theme == "" then current_theme = "default" end
 
+local saved_show_advanced = reaper.GetExtState("AiNOMEATOR", "show_advanced")
+local show_advanced = (saved_show_advanced == "true")
+
 
 local strings = {
   en = {
@@ -74,6 +77,9 @@ local strings = {
     experimental_notice_2 = "the AI will make mistakes.",
     btn_close = "CLOSE",
     btn_cancel = "CANCEL",
+    btn_show_advanced = "Advanced Options  [+]",
+    btn_hide_advanced = "Advanced Options  [-]",
+    tip_btn_show_advanced = "Toggle advanced settings like CPU threads, analysis backend, and custom color prompt.",
     lbl_analyzing = "Analyzing tracks with AI...",
     lbl_completed = "Analysis completed!",
     lbl_error = "Error during processing!",
@@ -155,6 +161,9 @@ local strings = {
     experimental_notice_2 = "a ia VAI cometer erros.",
     btn_close = "FECHAR",
     btn_cancel = "CANCELAR",
+    btn_show_advanced = "Opções Avançadas  [+]",
+    btn_hide_advanced = "Opções Avançadas  [-]",
+    tip_btn_show_advanced = "Mostra ou oculta configurações avançadas como backend, threads de CPU e prompt de cores.",
     lbl_analyzing = "Analisando faixas com IA...",
     lbl_completed = "Analise concluida!",
     lbl_error = "Erro no processamento!",
@@ -224,16 +233,23 @@ end
  -- "config", "analyzing", "completed", "error"
 local gui_logs = {}
 local DEBUG = false
+local parse_log_progress
+local show_text_log = false
+local cancel_path = ""
 
 local function log(msg)
-  for line in string.gmatch(tostring(msg) .. "\n", "(.-)\n") do
+  local msg_str = tostring(msg)
+  for line in string.gmatch(msg_str .. "\n", "(.-)\n") do
     table.insert(gui_logs, line)
+  end
+  if parse_log_progress then
+    parse_log_progress(msg_str)
   end
   while #gui_logs > 500 do
     table.remove(gui_logs, 1)
   end
   if DEBUG then
-    reaper.ShowConsoleMsg(tostring(msg) .. "\n")
+    reaper.ShowConsoleMsg(msg_str .. "\n")
   end
 end
 
@@ -718,7 +734,6 @@ local function find_icon(icon_files, category, instrument)
       end
     end
   end
-
   local keywords = ICON_KEYWORDS[category]
   if not keywords then return nil end
   for _, kw in ipairs(keywords) do
@@ -731,9 +746,121 @@ local function find_icon(icon_files, category, instrument)
   return nil
 end
 
+local function get_track_earliest_sound(tr, threshold_db)
+  threshold_db = threshold_db or -50
+  local threshold_amp = 10 ^ (threshold_db / 20)
+  
+  local earliest_sound = 9000000 -- MAX_TIME
+  local num_items = reaper.CountTrackMediaItems(tr)
+  if num_items == 0 then
+    return earliest_sound
+  end
+  
+  for j = 0, num_items - 1 do
+    local item = reaper.GetTrackMediaItem(tr, j)
+    local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+    local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+    local take = reaper.GetActiveTake(item)
+    
+    if take and not reaper.TakeIsMIDI(take) then
+      local accessor = reaper.CreateTakeAudioAccessor(take)
+      if accessor then
+        local samplerate = 1000
+        local channels = 1
+        local chunk_sec = 2.0
+        local chunk_samples = math.ceil(chunk_sec * samplerate)
+        local buffer = reaper.new_array(chunk_samples)
+        
+        local found = false
+        -- starttime_sec is relative to the take source, which usually aligns with D_STARTOFFS
+        local start_offs = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
+        
+        for pos_sec = 0, item_len, chunk_sec do
+          local fetch_start = start_offs + pos_sec
+          local samples_to_read = chunk_samples
+          if pos_sec + chunk_sec > item_len then
+            samples_to_read = math.ceil((item_len - pos_sec) * samplerate)
+          end
+          
+          if samples_to_read > 0 then
+            local ok = reaper.GetAudioAccessorSamples(accessor, samplerate, channels, fetch_start, samples_to_read, buffer)
+            if ok == 1 then
+              local b_table = buffer.table()
+              for i = 1, samples_to_read do
+                if math.abs(b_table[i] or 0) >= threshold_amp then
+                  local sound_time = item_pos + pos_sec + ((i - 1) / samplerate)
+                  if sound_time < earliest_sound then
+                    earliest_sound = sound_time
+                  end
+                  found = true
+                  break
+                end
+              end
+            end
+          end
+          if found then break end
+        end
+        reaper.DestroyAudioAccessor(accessor)
+      end
+    elseif take and reaper.TakeIsMIDI(take) then
+      local earliest_midi = 9000000
+      local _, num_events = reaper.MIDI_CountEvts(take)
+      for e = 0, num_events - 1 do
+        local retval, selected, muted, startppqpos, chanmsg, chan, pitch, vel = reaper.MIDI_GetNote(take, e)
+        if retval and not muted then
+          local proj_time = reaper.MIDI_GetProjTimeFromPPQPos(take, startppqpos)
+          if proj_time < earliest_midi then
+            earliest_midi = proj_time
+          end
+        end
+      end
+      if earliest_midi < earliest_sound then
+        earliest_sound = earliest_midi
+      end
+    else
+      if item_pos < earliest_sound then
+        earliest_sound = item_pos
+      end
+    end
+  end
+  
+  return earliest_sound
+end
+
 local function sort_project_tracks(track_categories, track_instruments)
   local total_tracks = reaper.CountTracks(0)
   if total_tracks <= 1 then return end
+ 
+  local MAX_TIME = 9000000
+  local track_sound_starts = {}
+
+  -- 1. Encontrar o tempo de entrada real de cada track
+  for i = 0, total_tracks - 1 do
+    local tr = reaper.GetTrack(0, i)
+    track_sound_starts[tr] = get_track_earliest_sound(tr, -50)
+  end
+
+  -- 2. Encontrar o tempo de entrada mais cedo (earliest_time) de cada categoria
+  local cat_earliest = {}
+  for i = 0, total_tracks - 1 do
+    local tr = reaper.GetTrack(0, i)
+    local category = track_categories[tr] or "outro"
+    local is_folder = reaper.GetMediaTrackInfo_Value(tr, "I_FOLDERDEPTH") == 1
+    if is_folder then
+      category = "pastas"
+    else
+      local _, tr_name = reaper.GetTrackName(tr)
+      local key_by_name = get_color_key("", "", tr_name or "")
+      if key_by_name == "efeitos" then
+        category = "efeitos"
+      end
+    end
+
+    local track_earliest = track_sound_starts[tr]
+    if not cat_earliest[category] or track_earliest < cat_earliest[category] then
+      cat_earliest[category] = track_earliest
+    end
+  end
 
   -- build the list of track objects to sort
   local list = {}
@@ -758,36 +885,27 @@ local function sort_project_tracks(track_categories, track_instruments)
       end
     end
 
-    -- Determine category weight
-    local weight = 100
-    if category == "guitarra" then
-      weight = 10
-    elseif category == "teclado" then
-      weight = 20
-    elseif category == "synth" then
-      weight = 30
-    elseif category == "cordas" then
-      weight = 40
-    elseif category == "sopro" then
-      weight = 50
-    elseif category == "baixo" then
-      weight = 60
-    elseif category == "bateria" then
-      weight = 70
-    elseif category == "vocal" then
-      weight = 80
-    elseif category == "pastas" then
-      weight = 90
+    -- Determine category weight dynamically based on when it enters the project
+    local base_weight = cat_earliest[category] or MAX_TIME
+    
+    -- Force specific categories to the bottom
+    local is_vocal = category:find("vocal") ~= nil or category == "voz"
+    if is_vocal then
+      base_weight = base_weight + 40000000
+    elseif category == "outro" then
+      base_weight = base_weight + 30000000
     elseif category == "efeitos" then
-      weight = 95
-    else
-      weight = 100
+      base_weight = base_weight + 20000000
+    elseif category == "pastas" then
+      base_weight = base_weight + 10000000
     end
 
     table.insert(list, {
       track = tr,
       guid = guid,
-      weight = weight,
+      weight = base_weight,
+      track_earliest = track_sound_starts[tr],
+      category = category,
       instrument = instrument:lower(),
       name = tr_name:lower(),
       orig_idx = i
@@ -799,8 +917,12 @@ local function sort_project_tracks(track_categories, track_instruments)
     if a.weight ~= b.weight then
       return a.weight < b.weight
     end
-    -- within category "guitarra" (weight 10), group core guitars/violões together
-    if a.weight == 10 then
+    -- same category weight, sort by individual track start time
+    if a.track_earliest ~= b.track_earliest then
+      return a.track_earliest < b.track_earliest
+    end
+    -- within same category and start time, group core guitars/violões together
+    if a.category == b.category and (a.category == "guitarra" or a.category == "violao" or a.category == "violão") then
       local a_is_core = (a.instrument:find("guitar", 1, true) or a.instrument:find("violao", 1, true) or a.instrument:find("violão", 1, true) or a.name:find("guitar", 1, true) or a.name:find("violao", 1, true) or a.name:find("violão", 1, true)) and 1 or 2
       local b_is_core = (b.instrument:find("guitar", 1, true) or b.instrument:find("violao", 1, true) or b.instrument:find("violão", 1, true) or b.name:find("guitar", 1, true) or b.name:find("violao", 1, true) or b.name:find("violão", 1, true)) and 1 or 2
       if a_is_core ~= b_is_core then
@@ -912,7 +1034,15 @@ local function start_analysis()
         end
       end
 
-      track_info[i] = {track = track, name = name, audio = best}
+      track_info[i] = {
+        track = track,
+        name = name,
+        audio = best,
+        status = best and "pending" or "skipped",
+        color = {77, 77, 77},
+        category = "",
+        instrument = ""
+      }
 
       if best then
         table.insert(manifest_lines,
@@ -960,6 +1090,7 @@ local function start_analysis()
   local result_path   = work_dir .. sep .. "result_"   .. stamp .. ".tsv"
   local log_path      = work_dir .. sep .. "log_"      .. stamp .. ".txt"
   local done_path     = work_dir .. sep .. "done_"     .. stamp .. ".flag"
+  cancel_path         = work_dir .. sep .. "cancel_"   .. stamp .. ".flag"
 
   local mf, err = io.open(manifest_path, "w")
   if not mf then
@@ -1330,29 +1461,42 @@ local layout = {
   lang_en = { x = 241, y = 12, w = 32, h = 16, radio_x = 246, radio_y = 20, radio_r = 3 },
   lang_pt = { x = 276, y = 12, w = 36, h = 16, radio_x = 282, radio_y = 20, radio_r = 3 },
   
+  -- Toggle de Opções Avançadas (Substitui o título geral)
+  advanced_toggle = { x = 30, y = 100, w = 260, h = 24 },
+  
   -- Checkboxes (deslocados para baixo do título)
-  sort_tracks = { x = 30, y = 130, w = 125, h = 20, cb_x = 30, cb_y = 135, cb_size = 18 },
-  only_selected = { x = 165, y = 130, w = 125, h = 20, cb_x = 165, cb_y = 135, cb_size = 18 },
+  sort_tracks = { x = 30, y = 160, w = 125, h = 20, cb_x = 30, cb_y = 165, cb_size = 18 },
+  only_selected = { x = 165, y = 160, w = 125, h = 20, cb_x = 165, cb_y = 165, cb_size = 18 },
   
   -- Rádios do modo de análise (lado a lado, deslocados)
-  mode_detailed = { x = 30, y = 185, w = 125, h = 20, cb_x = 30, cb_y = 190, cb_size = 18 },
-  mode_fast = { x = 165, y = 185, w = 125, h = 20, cb_x = 165, cb_y = 190, cb_size = 18 },
+  mode_detailed = { x = 30, y = 215, w = 125, h = 20, cb_x = 30, cb_y = 220, cb_size = 18 },
+  mode_fast = { x = 165, y = 215, w = 125, h = 20, cb_x = 165, cb_y = 220, cb_size = 18 },
   
   -- Rádios do backend de análise (deslocados)
-  backend_label_y = 240,
-  backend_start_y = 262,
+  backend_label_y = 270,
+  backend_start_y = 292,
   backend_spacing_y = 25,
   backend_cb_x = 30,
   backend_cb_size = 18,
   
   -- Theme Selector (deslocado)
-  theme_selector = { x = 30, y = 460, w = 260, h = 30 },
+  theme_selector = { x = 30, y = 490, w = 260, h = 30 },
   
   -- Outros Botões (deslocados)
-  copy_logs = { x = 190, y = 105, w = 100, h = 24 },
-  analyze = { x = 30, y = 615, w = 260, h = 36 },
-  close = { x = 30, y = 690, w = 260, h = 36 }
+  toggle_view = { x = 160, y = 105, w = 55, h = 24 },
+  copy_logs = { x = 220, y = 105, w = 70, h = 24 },
+  analyze = { x = 30, y = 645, w = 260, h = 36 },
+  close = { x = 30, y = 620, w = 260, h = 36 }
 }
+
+-- Layout do modo compacto (painel avançado fechado): logo -> botão Analisar -> toggle -> aviso -> créditos
+local COMPACT_BTN_Y = 160
+local COMPACT_BTN_H = 46
+local COMPACT_TOGGLE_Y = COMPACT_BTN_Y + COMPACT_BTN_H + 16
+local COMPACT_NOTE_Y1 = COMPACT_TOGGLE_Y + 24 + 12
+local COMPACT_NOTE_Y2 = COMPACT_NOTE_Y1 + 11
+local COMPACT_CREDITS_Y = COMPACT_NOTE_Y2 + 30
+local COMPACT_WINDOW_H = 340
 
 local backend_options = {
   { key = "panns",              label_key = "backend_panns" },
@@ -1388,6 +1532,10 @@ local logo_loaded = false
 local logo_w, logo_h = 0, 0
 local logo_buffer = 1
 
+local logo_big_loaded = false
+local logo_big_w, logo_big_h = 0, 0
+local logo_big_buffer = 2
+
 local function load_logo()
   local logo_path = script_dir .. "src" .. sep .. "ainomeator_logo.png"
   local res = gfx.loadimg(logo_buffer, logo_path)
@@ -1395,15 +1543,22 @@ local function load_logo()
     logo_w, logo_h = gfx.getimgdim(logo_buffer)
     logo_loaded = true
   end
+
+  local logo_big_path = script_dir .. "src" .. sep .. "ainometor_biglogo.png"
+  local res_big = gfx.loadimg(logo_big_buffer, logo_big_path)
+  if res_big >= 0 then
+    logo_big_w, logo_big_h = gfx.getimgdim(logo_big_buffer)
+    logo_big_loaded = true
+  end
 end
 
 only_selected = false
 sort_tracks = (saved_sort_tracks == "true")
 analysis_mode = "detailed"
 inputs = {
-  { label = t("thread_label"), val = "1", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 390, w = 110, h = 30 },
-  { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 540, w = 260, h = 30 },
-  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 180, y = 390, w = 110, h = 30 }
+  { label = t("thread_label"), val = "1", placeholder = "1-20", is_numeric = true, limit = 2, x = 30, y = 420, w = 110, h = 30 },
+  { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 570, w = 260, h = 30 },
+  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 180, y = 420, w = 110, h = 30 }
 }
 
 local function refresh_language_labels()
@@ -1526,6 +1681,27 @@ local function draw_copy_button()
   gfx.drawstr(c_text)
 end
 
+local function draw_toggle_view_button()
+  local btn = layout.toggle_view
+  local mouse_over = in_rect(btn.x, btn.y, btn.w, btn.h)
+  if mouse_over then
+    gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
+  else
+    gfx.r, gfx.g, gfx.b = 0.18, 0.18, 0.18
+  end
+  gfx.rect(btn.x, btn.y, btn.w, btn.h, 1)
+  gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+  gfx.rect(btn.x, btn.y, btn.w, btn.h, 0)
+  
+  gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
+  gfx.setfont(1, "Segoe UI", 10)
+  local text = show_text_log and "VISUAL" or "LOG"
+  local tw, th = gfx.measurestr(text)
+  gfx.x = btn.x + (btn.w - tw) / 2
+  gfx.y = btn.y + (btn.h - th) / 2
+  gfx.drawstr(text)
+end
+
 local last_summary_time = 0
 local cached_jobs = 0
 local cached_skipped = 0
@@ -1575,6 +1751,193 @@ local function update_analysis_summary_cached()
   return cached_jobs, cached_skipped
 end
 
+parse_log_progress = function(text)
+  for line in text:gmatch("[^\n]+") do
+    if line:find("✔ trk", 1, true) then
+      local trk_idx_str = line:match("✔ trk (%d+)")
+      if trk_idx_str then
+        local idx = tonumber(trk_idx_str)
+        if idx and track_info[idx] then
+          local content = line:match("│%s*(.-)%s*│")
+          if content then
+            local arrow_start, arrow_end = content:find("→", 1, true)
+            if arrow_start then
+              local category = content:sub(1, arrow_start - 1):gsub("^%s*", ""):gsub("%s*$", "")
+              local instrument = content:sub(arrow_end + 1):gsub("^%s*", ""):gsub("%s*$", "")
+              
+              local col_key = get_color_key(category, instrument, instrument)
+              local col = config_colors[col_key] or config_colors["outro"]
+              
+              track_info[idx].status = "ok"
+              track_info[idx].color = col
+              track_info[idx].instrument = instrument
+              track_info[idx].category = category
+            end
+          end
+        end
+      end
+    elseif line:find("✖ trk", 1, true) then
+      local trk_idx_str = line:match("✖ trk (%d+)")
+      if trk_idx_str then
+        local idx = tonumber(trk_idx_str)
+        if idx and track_info[idx] then
+          track_info[idx].status = "error"
+          track_info[idx].color = {220, 50, 50}
+          track_info[idx].instrument = "error"
+        end
+      end
+    end
+  end
+end
+
+local function draw_visualizer(box_x, box_y, box_w, box_h)
+  local display_tracks = {}
+  local track_count = reaper.CountTracks(0)
+  for idx = 0, track_count - 1 do
+    local info = track_info[idx]
+    if info and info.audio then
+      table.insert(display_tracks, info)
+    end
+  end
+  
+  local num_tracks = #display_tracks
+  if num_tracks == 0 then
+    gfx.setfont(1, "Segoe UI", 12)
+    gfx.r, gfx.g, gfx.b = 0.5, 0.5, 0.5
+    local text = t("msg_no_audio") or "Sem faixas para analisar"
+    local tw, th = gfx.measurestr(text)
+    gfx.x = box_x + (box_w - tw) / 2
+    gfx.y = box_y + (box_h - th) / 2
+    gfx.drawstr(text)
+    return
+  end
+  
+  local padding = 4
+  local track_h = math.floor((box_h - (num_tracks + 1) * padding) / num_tracks)
+  if track_h < 6 then
+    track_h = 6
+    padding = 1
+  end
+  if track_h > 36 then
+    track_h = 36
+  end
+  
+  local start_y = box_y + padding
+  
+  for i, info in ipairs(display_tracks) do
+    local ty = start_y + (i - 1) * (track_h + padding)
+    if ty + track_h > box_y + box_h then break end
+    
+    local rx = box_x + padding
+    local rw = box_w - padding * 2
+    
+    -- TCP width (left panel)
+    local tcp_w = math.floor(rw * 0.35)
+    if tcp_w < 50 then tcp_w = 50 end
+    if tcp_w > 90 then tcp_w = 90 end
+    
+    local item_w = rw - tcp_w - 2
+    local item_x = rx + tcp_w + 2
+    
+    -- 1. Draw TCP (Track Control Panel)
+    gfx.r, gfx.g, gfx.b = 0.16, 0.16, 0.16
+    gfx.rect(rx, ty, tcp_w, track_h, 1)
+    
+    gfx.r, gfx.g, gfx.b = 0.22, 0.22, 0.22
+    gfx.rect(rx, ty, tcp_w, track_h, 0)
+    
+    if track_h >= 14 then
+      gfx.setfont(1, "Segoe UI", 10)
+      gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
+      gfx.x = rx + 6
+      gfx.y = ty + (track_h - 12) / 2
+      local disp_name = info.name
+      while gfx.measurestr(disp_name) > (tcp_w - 12) and #disp_name > 0 do
+        disp_name = disp_name:sub(1, -2)
+      end
+      if #disp_name < #info.name then
+        disp_name = disp_name .. ".."
+      end
+      gfx.drawstr(disp_name)
+    end
+    
+    -- 2. Draw "Media Item"
+    local r, g, b = 0.25, 0.25, 0.25
+    local is_analyzing = false
+    
+    if info.status == "ok" then
+      r, g, b = info.color[1] / 255, info.color[2] / 255, info.color[3] / 255
+    elseif info.status == "error" then
+      r, g, b = 0.8, 0.2, 0.2
+    elseif info.status == "pending" then
+      r, g, b = 0.28, 0.28, 0.28
+      local is_active = true
+      for prev_idx = 1, i - 1 do
+        if display_tracks[prev_idx].status == "pending" then
+          is_active = false
+          break
+        end
+      end
+      if is_active then
+        is_analyzing = true
+        local pulse = 0.35 + 0.15 * math.sin(reaper.time_precise() * 6)
+        r, g, b = pulse, pulse, pulse
+      end
+    end
+    
+    gfx.r, gfx.g, gfx.b = r, g, b
+    gfx.rect(item_x, ty, item_w, track_h, 1)
+    
+    if is_analyzing then
+      gfx.r, gfx.g, gfx.b = 0.6, 0.6, 0.6
+    else
+      gfx.r, gfx.g, gfx.b = 0.18, 0.18, 0.18
+    end
+    gfx.rect(item_x, ty, item_w, track_h, 0)
+    
+    -- Waveform abstraction
+    if track_h >= 10 then
+      gfx.r, gfx.g, gfx.b = r * 1.3, g * 1.3, b * 1.3
+      if gfx.r > 1.0 then gfx.r = 1.0 end
+      if gfx.g > 1.0 then gfx.g = 1.0 end
+      if gfx.b > 1.0 then gfx.b = 1.0 end
+      
+      local num_lines = math.floor(item_w / 6)
+      for j = 1, num_lines do
+        local lx = item_x + j * 6
+        local line_h = math.floor((track_h - 4) * (0.3 + 0.7 * math.sin(j * 0.8 + i)))
+        if line_h < 2 then line_h = 2 end
+        local ly = ty + (track_h - line_h) / 2
+        gfx.line(lx, ly, lx, ly + line_h)
+      end
+    end
+    
+    -- Instrument Name overlay
+    if info.status == "ok" and track_h >= 14 then
+      gfx.setfont(1, "Segoe UI", 10, 98)
+      gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
+      
+      local inst_text = info.instrument or ""
+      local inst_w, inst_h = gfx.measurestr(inst_text)
+      if inst_w < (item_w - 12) then
+        gfx.x = item_x + 8
+        gfx.y = ty + (track_h - inst_h) / 2
+        gfx.drawstr(inst_text)
+      end
+    elseif is_analyzing and track_h >= 14 then
+      gfx.setfont(1, "Segoe UI", 10)
+      gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
+      local scan_text = "scanning..."
+      local sw, sh = gfx.measurestr(scan_text)
+      if sw < (item_w - 12) then
+        gfx.x = item_x + 8
+        gfx.y = ty + (track_h - sh) / 2
+        gfx.drawstr(scan_text)
+      end
+    end
+  end
+end
+
 local last_hovered_text = nil
 local hover_start_time = 0
 local lock_tx, lock_ty = 0, 0
@@ -1585,12 +1948,22 @@ local function draw_gui()
   gfx.r, gfx.g, gfx.b = 0.12, 0.12, 0.12
   gfx.rect(0, 0, gfx.w, gfx.h, 1)
 
-  -- Titulo (Logo ou Fallback Text)
-  if logo_loaded then
-    local target_h = 80
-    local target_w = (logo_w / logo_h) * target_h
+  -- Modo compacto: tela "config" com painel avançado fechado
+  local is_compact_view = (gui_state == "config" and not show_advanced)
+
+  -- Titulo (Logo ou Fallback Text) — no compacto usa a logo em alta resolucao
+  -- (ainometor_biglogo.png), no mesmo tamanho visivel de sempre (target_h),
+  -- so que mais nitida por partir de uma imagem maior
+  local use_big_logo = is_compact_view and logo_big_loaded
+  local buf = use_big_logo and logo_big_buffer or logo_buffer
+  local src_w = use_big_logo and logo_big_w or logo_w
+  local src_h = use_big_logo and logo_big_h or logo_h
+
+  if logo_loaded or logo_big_loaded then
+    local target_h = is_compact_view and 130 or 80
+    local target_w = (src_w / src_h) * target_h
     local target_x = (gfx.w - target_w) / 2
-    gfx.blit(logo_buffer, 1, 0, 0, 0, logo_w, logo_h, target_x, 10, target_w, target_h)
+    gfx.blit(buf, 1, 0, 0, 0, src_w, src_h, target_x, 15, target_w, target_h)
   else
     gfx.setfont(1, "Segoe UI", 18, 98) -- Bold
     gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
@@ -1598,10 +1971,12 @@ local function draw_gui()
     gfx.drawstr("AiNOMEATOR")
   end
 
-  -- Linha divisoria
-  gfx.setfont(1, "Segoe UI", 12)
-  gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
-  gfx.line(30, 100, 290, 100)
+  -- Linha divisoria (oculta no modo compacto — o logo maior já ocupa esse espaço)
+  if not is_compact_view then
+    gfx.setfont(1, "Segoe UI", 12)
+    gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
+    gfx.line(30, 100, 290, 100)
+  end
 
   if gui_state == "config" then
     -- Radio de idioma no topo
@@ -1627,264 +2002,300 @@ local function draw_gui()
       gfx.circle(pt.radio_x, pt.radio_y, pt.radio_r - 2, 1, 1)
     end
 
-    -- Opções Gerais Label
-    gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
-    gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
-    gfx.x, gfx.y = 30, 110
-    gfx.drawstr(t("general_label"))
-    gfx.setfont(1, "Segoe UI", 11)
-
-    -- Checkbox "Apenas faixas selecionadas"
-    local opt = layout.only_selected
-    if in_rect(opt.x, opt.y, opt.w, opt.h) then tooltip_to_draw = t("tip_only_selected") end
-    gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-    gfx.rect(opt.cb_x, opt.cb_y, opt.cb_size, opt.cb_size, 1) -- fill
-    gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(opt.cb_x, opt.cb_y, opt.cb_size, opt.cb_size, 0) -- border
-    
-    if only_selected then
-      gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.rect(opt.cb_x + 3, opt.cb_y + 3, opt.cb_size - 6, opt.cb_size - 6, 1)
-    end
-
-    gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-    gfx.x, gfx.y = opt.cb_x + 28, opt.cb_y + 1
-    gfx.drawstr(t("only_selected"))
-
-    -- Checkbox "Ordenar por instrumento"
-    local opt_s = layout.sort_tracks
-    if in_rect(opt_s.x, opt_s.y, opt_s.w, opt_s.h) then tooltip_to_draw = t("tip_sort_tracks") end
-    gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-    gfx.rect(opt_s.cb_x, opt_s.cb_y, opt_s.cb_size, opt_s.cb_size, 1) -- fill
-    gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(opt_s.cb_x, opt_s.cb_y, opt_s.cb_size, opt_s.cb_size, 0) -- border
-    
-    if sort_tracks then
-      gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.rect(opt_s.cb_x + 3, opt_s.cb_y + 3, opt_s.cb_size - 6, opt_s.cb_size - 6, 1)
-    end
-
-    gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-    gfx.x, gfx.y = opt_s.cb_x + 28, opt_s.cb_y + 1
-    gfx.drawstr(t("sort_tracks"))
-    
-    -- Linha divisória
-    gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-    gfx.line(30, 160, 290, 160)
-
-    -- Modo de Análise Label
-    gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
-    gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
-    gfx.x, gfx.y = 30, 170
-    gfx.drawstr(t("analysis_mode"))
-    gfx.setfont(1, "Segoe UI", 11)
-
-    -- Radio 1: "Análise rápida de pequena amostra"
-    local r1 = layout.mode_fast
-    if in_rect(r1.x, r1.y, r1.w, r1.h) then tooltip_to_draw = t("tip_mode_fast") end
-    gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-    gfx.rect(r1.cb_x, r1.cb_y, r1.cb_size, r1.cb_size, 1)
-    gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(r1.cb_x, r1.cb_y, r1.cb_size, r1.cb_size, 0)
-    if analysis_mode == "fast" then
-      gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.rect(r1.cb_x + 3, r1.cb_y + 3, r1.cb_size - 6, r1.cb_size - 6, 1)
-    end
-    gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-    gfx.x, gfx.y = r1.cb_x + 28, r1.cb_y + 1
-    gfx.drawstr(t("mode_fast"))
-
-    -- Radio 2: "Análise detalhada"
-    local r2 = layout.mode_detailed
-    if in_rect(r2.x, r2.y, r2.w, r2.h) then tooltip_to_draw = t("tip_mode_detailed") end
-    gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-    gfx.rect(r2.cb_x, r2.cb_y, r2.cb_size, r2.cb_size, 1)
-    gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(r2.cb_x, r2.cb_y, r2.cb_size, r2.cb_size, 0)
-    if analysis_mode == "detailed" then
-      gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      gfx.rect(r2.cb_x + 3, r2.cb_y + 3, r2.cb_size - 6, r2.cb_size - 6, 1)
-    end
-    gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-    gfx.x, gfx.y = r2.cb_x + 28, r2.cb_y + 1
-    gfx.drawstr(t("mode_detailed"))
-
-    -- Linha divisória
-    gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-    gfx.line(30, 215, 290, 215)
-
-    -- Backend de Análise Label
-    gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
-    gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
-    gfx.x, gfx.y = 30, layout.backend_label_y
-    gfx.drawstr(t("backend_label"))
-    gfx.setfont(1, "Segoe UI", 11)
-
-    local cb_x, cb_size = layout.backend_cb_x, layout.backend_cb_size
-    for i, opt in ipairs(backend_options) do
-      local opt_y = layout.backend_start_y + (i - 1) * layout.backend_spacing_y
-      if in_rect(cb_x, opt_y, 250, cb_size) then
-        tooltip_to_draw = t("tip_backend_" .. opt.key)
-      end
-      gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-      gfx.rect(cb_x, opt_y, cb_size, cb_size, 1)
-      gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-      gfx.rect(cb_x, opt_y, cb_size, cb_size, 0)
-      if backend == opt.key then
-        gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-        gfx.rect(cb_x + 3, opt_y + 3, cb_size - 6, cb_size - 6, 1)
-      end
-      gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-      gfx.x, gfx.y = cb_x + 28, opt_y + 1
-      gfx.drawstr(t(opt.label_key))
-    end
-
-    -- Linha divisória
-    gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-    gfx.line(30, 365, 290, 365)
-
-    -- Linha divisória após as threads
-    gfx.line(30, 440, 290, 440)
-
-    -- Theme Selector Label
-    gfx.setfont(1, "Segoe UI", 10)
-    gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
-    gfx.x, gfx.y = layout.theme_selector.x, layout.theme_selector.y - 20
-    gfx.drawstr(t("theme_label"))
-
-    -- Theme Selector Box
-    local ts = layout.theme_selector
-    local mouse_over_ts = in_rect(ts.x, ts.y, ts.w, ts.h)
-    if mouse_over_ts then
-      tooltip_to_draw = t("tip_theme")
+    -- Botão de Opções Avançadas (Toggle) — no compacto fica abaixo do botão Analisar
+    local toggle = {
+      x = layout.advanced_toggle.x,
+      y = show_advanced and layout.advanced_toggle.y or COMPACT_TOGGLE_Y,
+      w = layout.advanced_toggle.w,
+      h = layout.advanced_toggle.h,
+    }
+    local mouse_over_toggle = in_rect(toggle.x, toggle.y, toggle.w, toggle.h)
+    if mouse_over_toggle then
+      tooltip_to_draw = t("tip_btn_show_advanced")
       gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
     else
       gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
     end
-    gfx.rect(ts.x, ts.y, ts.w, ts.h, 1) -- fill
+    gfx.rect(toggle.x, toggle.y, toggle.w, toggle.h, 1) -- fill
     gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-    gfx.rect(ts.x, ts.y, ts.w, ts.h, 0) -- border
-
-    -- Theme Selector Text
-    gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
+    gfx.rect(toggle.x, toggle.y, toggle.w, toggle.h, 0) -- border
+    
+    local toggle_label = show_advanced and t("btn_hide_advanced") or t("btn_show_advanced")
+    gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
     gfx.setfont(1, "Segoe UI", 10, 98) -- Bold
-    local theme_text = t("theme_" .. current_theme)
-    local tstw, tsth = gfx.measurestr(theme_text)
-    gfx.x = ts.x + (ts.w - tstw)/2
-    gfx.y = ts.y + (ts.h - tsth)/2
-    gfx.drawstr(theme_text)
+    local t_w, t_h = gfx.measurestr(toggle_label)
+    gfx.x = toggle.x + (toggle.w - t_w)/2
+    gfx.y = toggle.y + (toggle.h - t_h)/2
+    gfx.drawstr(toggle_label)
 
-    -- Linha divisória após o Theme
-    gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-    gfx.line(30, 515, 290, 515)
+    if show_advanced then
+      -- Opções Gerais Label
+      gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
+      gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
+      gfx.x, gfx.y = 30, 140
+      gfx.drawstr(t("general_label"))
+      gfx.setfont(1, "Segoe UI", 11)
 
-    -- Campos de Texto
-    for i, inp in ipairs(inputs) do
-      if in_rect(inp.x, inp.y, inp.w, inp.h) then
-        if i == 1 then
-          tooltip_to_draw = t("tip_threads_cpu")
-        elseif i == 2 then
-          tooltip_to_draw = t("tip_colors_prompt")
-        elseif i == 3 then
-          tooltip_to_draw = t("tip_local_threads")
-        end
+      -- Checkbox "Apenas faixas selecionadas"
+      local opt = layout.only_selected
+      if in_rect(opt.x, opt.y, opt.w, opt.h) then tooltip_to_draw = t("tip_only_selected") end
+      gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+      gfx.rect(opt.cb_x, opt.cb_y, opt.cb_size, opt.cb_size, 1) -- fill
+      gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+      gfx.rect(opt.cb_x, opt.cb_y, opt.cb_size, opt.cb_size, 0) -- border
+      
+      if only_selected then
+        gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+        gfx.rect(opt.cb_x + 3, opt.cb_y + 3, opt.cb_size - 6, opt.cb_size - 6, 1)
       end
 
-      -- Label
-      gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
-      gfx.x, gfx.y = inp.x, inp.y - 20
-      gfx.drawstr(inp.label)
+      gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
+      gfx.x, gfx.y = opt.cb_x + 28, opt.cb_y + 1
+      gfx.drawstr(t("only_selected"))
 
-      -- Caixa de input (cinza se desabilitada)
-      if i == 2 and current_theme ~= "custom" then
-        gfx.r, gfx.g, gfx.b = 0.10, 0.10, 0.10
+      -- Checkbox "Ordenar por instrumento"
+      local opt_s = layout.sort_tracks
+      if in_rect(opt_s.x, opt_s.y, opt_s.w, opt_s.h) then tooltip_to_draw = t("tip_sort_tracks") end
+      gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+      gfx.rect(opt_s.cb_x, opt_s.cb_y, opt_s.cb_size, opt_s.cb_size, 1) -- fill
+      gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+      gfx.rect(opt_s.cb_x, opt_s.cb_y, opt_s.cb_size, opt_s.cb_size, 0) -- border
+      
+      if sort_tracks then
+        gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+        gfx.rect(opt_s.cb_x + 3, opt_s.cb_y + 3, opt_s.cb_size - 6, opt_s.cb_size - 6, 1)
+      end
+
+      gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
+      gfx.x, gfx.y = opt_s.cb_x + 28, opt_s.cb_y + 1
+      gfx.drawstr(t("sort_tracks"))
+      
+      -- Linha divisória
+      gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+      gfx.line(30, 190, 290, 190)
+
+      -- Modo de Análise Label
+      gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
+      gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
+      gfx.x, gfx.y = 30, 200
+      gfx.drawstr(t("analysis_mode"))
+      gfx.setfont(1, "Segoe UI", 11)
+
+      -- Radio 1: "Análise rápida de pequena amostra"
+      local r1 = layout.mode_fast
+      if in_rect(r1.x, r1.y, r1.w, r1.h) then tooltip_to_draw = t("tip_mode_fast") end
+      gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+      gfx.rect(r1.cb_x, r1.cb_y, r1.cb_size, r1.cb_size, 1)
+      gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+      gfx.rect(r1.cb_x, r1.cb_y, r1.cb_size, r1.cb_size, 0)
+      if analysis_mode == "fast" then
+        gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+        gfx.rect(r1.cb_x + 3, r1.cb_y + 3, r1.cb_size - 6, r1.cb_size - 6, 1)
+      end
+      gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
+      gfx.x, gfx.y = r1.cb_x + 28, r1.cb_y + 1
+      gfx.drawstr(t("mode_fast"))
+
+      -- Radio 2: "Análise detalhada"
+      local r2 = layout.mode_detailed
+      if in_rect(r2.x, r2.y, r2.w, r2.h) then tooltip_to_draw = t("tip_mode_detailed") end
+      gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+      gfx.rect(r2.cb_x, r2.cb_y, r2.cb_size, r2.cb_size, 1)
+      gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+      gfx.rect(r2.cb_x, r2.cb_y, r2.cb_size, r2.cb_size, 0)
+      if analysis_mode == "detailed" then
+        gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+        gfx.rect(r2.cb_x + 3, r2.cb_y + 3, r2.cb_size - 6, r2.cb_size - 6, 1)
+      end
+      gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
+      gfx.x, gfx.y = r2.cb_x + 28, r2.cb_y + 1
+      gfx.drawstr(t("mode_detailed"))
+
+      -- Linha divisória
+      gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+      gfx.line(30, 245, 290, 245)
+
+      -- Backend de Análise Label
+      gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
+      gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
+      gfx.x, gfx.y = 30, layout.backend_label_y
+      gfx.drawstr(t("backend_label"))
+      gfx.setfont(1, "Segoe UI", 11)
+
+      local cb_x, cb_size = layout.backend_cb_x, layout.backend_cb_size
+      for i, opt in ipairs(backend_options) do
+        local opt_y = layout.backend_start_y + (i - 1) * layout.backend_spacing_y
+        if in_rect(cb_x, opt_y, 250, cb_size) then
+          tooltip_to_draw = t("tip_backend_" .. opt.key)
+        end
+        gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+        gfx.rect(cb_x, opt_y, cb_size, cb_size, 1)
+        gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+        gfx.rect(cb_x, opt_y, cb_size, cb_size, 0)
+        if backend == opt.key then
+          gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+          gfx.rect(cb_x + 3, opt_y + 3, cb_size - 6, cb_size - 6, 1)
+        end
+        gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
+        gfx.x, gfx.y = cb_x + 28, opt_y + 1
+        gfx.drawstr(t(opt.label_key))
+      end
+
+      -- Linha divisória
+      gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+      gfx.line(30, 395, 290, 395)
+
+      -- Linha divisória após as threads
+      gfx.line(30, 460, 290, 460)
+
+      -- Theme Selector Label
+      gfx.setfont(1, "Segoe UI", 10)
+      gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
+      gfx.x, gfx.y = layout.theme_selector.x, layout.theme_selector.y - 20
+      gfx.drawstr(t("theme_label"))
+
+      -- Theme Selector Box
+      local ts = layout.theme_selector
+      local mouse_over_ts = in_rect(ts.x, ts.y, ts.w, ts.h)
+      if mouse_over_ts then
+        tooltip_to_draw = t("tip_theme")
+        gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
       else
         gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
       end
-      gfx.rect(inp.x, inp.y, inp.w, inp.h, 1) -- preenchimento
+      gfx.rect(ts.x, ts.y, ts.w, ts.h, 1) -- fill
+      gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+      gfx.rect(ts.x, ts.y, ts.w, ts.h, 0) -- border
 
-      -- Borda (destaque Coral se focado)
-      if focused_input == i then
-        gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-      else
-        gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-      end
-      gfx.rect(inp.x, inp.y, inp.w, inp.h, 0)
+      -- Theme Selector Text
+      gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
+      gfx.setfont(1, "Segoe UI", 10, 98) -- Bold
+      local theme_text = t("theme_" .. current_theme)
+      local tstw, tsth = gfx.measurestr(theme_text)
+      gfx.x = ts.x + (ts.w - tstw)/2
+      gfx.y = ts.y + (ts.h - tsth)/2
+      gfx.drawstr(theme_text)
 
-      -- Valor ou Placeholder
-      local max_w = inp.w - 16
-      if i == 2 and current_theme ~= "custom" then
-        gfx.r, gfx.g, gfx.b = 0.35, 0.35, 0.35 -- Muted text
-        gfx.x, gfx.y = inp.x + 8, inp.y + 7
-        gfx.drawstr(t("theme_prompt_disabled"))
-      elseif inp.val == "" and focused_input ~= i then
-        gfx.r, gfx.g, gfx.b = 0.4, 0.4, 0.4 -- Cinza apagado para placeholder
-        gfx.x, gfx.y = inp.x + 8, inp.y + 7
-        
-        local disp_placeholder = inp.placeholder
-        while gfx.measurestr(disp_placeholder) > max_w and #disp_placeholder > 0 do
-          disp_placeholder = disp_placeholder:sub(1, -2)
-        end
-        gfx.drawstr(disp_placeholder)
-      else
-        gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
-        gfx.x, gfx.y = inp.x + 8, inp.y + 7
-        
-        local display_text = inp.val
-        if inp.is_password and not show_api_key then
-          display_text = string.rep("•", #inp.val)
-        end
-        
-        -- Efeito de scroll: se o texto for maior que a caixa, corta o comeco
-        local start_idx = 1
-        local actual_display = display_text
-        while gfx.measurestr(actual_display) > max_w and start_idx <= #display_text do
-          start_idx = start_idx + 1
-          actual_display = display_text:sub(start_idx)
-        end
-        
-        gfx.drawstr(actual_display)
+      -- Linha divisória após o Theme
+      gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+      gfx.line(30, 535, 290, 535)
 
-        -- Cursor piscante
+      -- Campos de Texto
+      for i, inp in ipairs(inputs) do
+        if in_rect(inp.x, inp.y, inp.w, inp.h) then
+          if i == 1 then
+            tooltip_to_draw = t("tip_threads_cpu")
+          elseif i == 2 then
+            tooltip_to_draw = t("tip_colors_prompt")
+          elseif i == 3 then
+            tooltip_to_draw = t("tip_local_threads")
+          end
+        end
+
+        -- Label
+        gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
+        gfx.x, gfx.y = inp.x, inp.y - 20
+        gfx.drawstr(inp.label)
+
+        -- Caixa de input (cinza se desabilitada)
+        if i == 2 and current_theme ~= "custom" then
+          gfx.r, gfx.g, gfx.b = 0.10, 0.10, 0.10
+        else
+          gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+        end
+        gfx.rect(inp.x, inp.y, inp.w, inp.h, 1) -- preenchimento
+
+        -- Borda (destaque Coral se focado)
         if focused_input == i then
-          local str_w, str_h = gfx.measurestr(actual_display)
-          if math.floor(reaper.time_precise() * 2) % 2 == 0 then
-            gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-            gfx.rect(inp.x + 8 + str_w, inp.y + 6, 2, 18, 1)
+          gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+        else
+          gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+        end
+        gfx.rect(inp.x, inp.y, inp.w, inp.h, 0)
+
+        -- Valor ou Placeholder
+        local max_w = inp.w - 16
+        if i == 2 and current_theme ~= "custom" then
+          gfx.r, gfx.g, gfx.b = 0.35, 0.35, 0.35 -- Muted text
+          gfx.x, gfx.y = inp.x + 8, inp.y + 7
+          gfx.drawstr(t("theme_prompt_disabled"))
+        elseif inp.val == "" and focused_input ~= i then
+          gfx.r, gfx.g, gfx.b = 0.4, 0.4, 0.4 -- Cinza apagado para placeholder
+          gfx.x, gfx.y = inp.x + 8, inp.y + 7
+          
+          local disp_placeholder = inp.placeholder
+          while gfx.measurestr(disp_placeholder) > max_w and #disp_placeholder > 0 do
+            disp_placeholder = disp_placeholder:sub(1, -2)
+          end
+          gfx.drawstr(disp_placeholder)
+        else
+          gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
+          gfx.x, gfx.y = inp.x + 8, inp.y + 7
+          
+          local display_text = inp.val
+          if inp.is_password and not show_api_key then
+            display_text = string.rep("•", #inp.val)
+          end
+          
+          -- Efeito de scroll: se o texto for maior que a caixa, corta o comeco
+          local start_idx = 1
+          local actual_display = display_text
+          while gfx.measurestr(actual_display) > max_w and start_idx <= #display_text do
+            start_idx = start_idx + 1
+            actual_display = display_text:sub(start_idx)
+          end
+          
+          gfx.drawstr(actual_display)
+
+          -- Cursor piscante
+          if focused_input == i then
+            local str_w, str_h = gfx.measurestr(actual_display)
+            if math.floor(reaper.time_precise() * 2) % 2 == 0 then
+              gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+              gfx.rect(inp.x + 8 + str_w, inp.y + 6, 2, 18, 1)
+            end
           end
         end
       end
+    else
+      -- Linha divisória compacta
+      gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+      gfx.line(30, 135, 290, 135)
     end
 
     -- Info de resumo econômico/faixas dinâmico
     local n_jobs, n_skipped = update_analysis_summary_cached()
     gfx.setfont(1, "Segoe UI", 11)
+    local summary_y1 = show_advanced and 610 or 150
+    local summary_y2 = show_advanced and 622 or 162
     if n_jobs == 0 then
       gfx.r, gfx.g, gfx.b = 0.8, 0.6, 0.2 -- Amarelo/Dourado suave
-      gfx.x, gfx.y = 30, 580
+      gfx.x, gfx.y = 30, summary_y1
       gfx.drawstr(t("msg_no_audio"))
     else
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65 -- Cinza suave
-      gfx.x, gfx.y = 30, 592
+      gfx.x, gfx.y = 30, summary_y2
       local msg = string.format(t("msg_summary"), n_jobs, n_skipped)
       gfx.drawstr(msg)
     end
 
     -- Botao Analisar (Coral) - Centrado de largura total
-    local btn = layout.analyze
-    local mouse_over_run = in_rect(btn.x, btn.y, btn.w, btn.h)
+    local btn_y = show_advanced and layout.analyze.y or COMPACT_BTN_Y
+    local btn_w = layout.analyze.w
+    local btn_h = show_advanced and layout.analyze.h or COMPACT_BTN_H
+    local mouse_over_run = in_rect(30, btn_y, btn_w, btn_h)
     if mouse_over_run then
       tooltip_to_draw = t("tip_btn_analyze")
       gfx.r, gfx.g, gfx.b = 0.65, 0.1, 0.15
     else
       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
     end
-    gfx.rect(btn.x, btn.y, btn.w, btn.h, 1)
+    gfx.rect(30, btn_y, btn_w, btn_h, 1)
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.setfont(1, "Segoe UI", 12, 98) -- Bold
     local tw, th = gfx.measurestr(t("btn_analyze"))
-    gfx.x = btn.x + (btn.w - tw)/2
-    gfx.y = btn.y + (btn.h - th)/2
+    gfx.x = 30 + (btn_w - tw)/2
+    gfx.y = btn_y + (btn_h - th)/2
     gfx.drawstr(t("btn_analyze"))
 
     -- Aviso experimental
@@ -1894,11 +2305,13 @@ local function draw_gui()
     local note2 = t("experimental_notice_2")
     local note1_w = gfx.measurestr(note1)
     local note2_w = gfx.measurestr(note2)
+    local note_y1 = show_advanced and 695 or COMPACT_NOTE_Y1
+    local note_y2 = show_advanced and 706 or COMPACT_NOTE_Y2
     gfx.x = (gfx.w - note1_w) / 2
-    gfx.y = 665
+    gfx.y = note_y1
     gfx.drawstr(note1)
     gfx.x = (gfx.w - note2_w) / 2
-    gfx.y = 676
+    gfx.y = note_y2
     gfx.drawstr(note2)
 
     -- Creditos visiveis
@@ -1906,7 +2319,7 @@ local function draw_gui()
     local credit_text = "by jasko"
     local cr_w, cr_h = gfx.measurestr(credit_text)
     local cr_x = (gfx.w - cr_w) / 2
-    local cr_y = 701
+    local cr_y = show_advanced and 720 or COMPACT_CREDITS_Y
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.x = cr_x
     gfx.y = cr_y
@@ -1943,14 +2356,35 @@ local function draw_gui()
     gfx.drawstr(dots)
 
     -- Caixa de Logs
-    local box_x, box_y, box_w, box_h = 30, 135, 260, 525
+    local box_x, box_y, box_w, box_h = 30, 135, 260, 460
     gfx.r, gfx.g, gfx.b = 0.08, 0.08, 0.08
     gfx.rect(box_x, box_y, box_w, box_h, 1)
     gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
     gfx.rect(box_x, box_y, box_w, box_h, 0)
 
-    draw_logs(box_x + 10, box_y + 10, box_w - 20, box_h - 20)
+    if show_text_log then
+      draw_logs(box_x + 10, box_y + 10, box_w - 20, box_h - 20)
+    else
+      draw_visualizer(box_x, box_y, box_w, box_h)
+    end
     draw_copy_button()
+    draw_toggle_view_button()
+
+    -- Botao Cancelar
+    local btn = layout.close
+    local mouse_over_cancel = in_rect(btn.x, btn.y, btn.w, btn.h)
+    if mouse_over_cancel then
+      gfx.r, gfx.g, gfx.b = 0.30, 0.30, 0.30
+    else
+      gfx.r, gfx.g, gfx.b = 0.20, 0.20, 0.20
+    end
+    gfx.rect(btn.x, btn.y, btn.w, btn.h, 1)
+    gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
+    gfx.setfont(1, "Segoe UI", 12, 98) -- Bold
+    local tw, th = gfx.measurestr(t("btn_cancel"))
+    gfx.x = btn.x + (btn.w - tw)/2
+    gfx.y = btn.y + (btn.h - th)/2
+    gfx.drawstr(t("btn_cancel"))
 
   elseif gui_state == "completed" or gui_state == "error" then
     -- Subtitulo de Sucesso ou Erro
@@ -1965,14 +2399,19 @@ local function draw_gui()
     end
 
     -- Caixa de Logs
-    local box_x, box_y, box_w, box_h = 30, 135, 260, 525
+    local box_x, box_y, box_w, box_h = 30, 135, 260, 460
     gfx.r, gfx.g, gfx.b = 0.08, 0.08, 0.08
     gfx.rect(box_x, box_y, box_w, box_h, 1)
     gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
     gfx.rect(box_x, box_y, box_w, box_h, 0)
 
-    draw_logs(box_x + 10, box_y + 10, box_w - 20, box_h - 20)
+    if show_text_log then
+      draw_logs(box_x + 10, box_y + 10, box_w - 20, box_h - 20)
+    else
+      draw_visualizer(box_x, box_y, box_w, box_h)
+    end
     draw_copy_button()
+    draw_toggle_view_button()
 
     -- Botao Fechar
     local btn = layout.close
@@ -2011,6 +2450,13 @@ local function draw_gui()
   gfx.update()
 end
 
+local function resize_window(expected_h)
+  local dock, x, y, w, h = gfx.dock(-1, 0, 0, 0, 0)
+  gfx.quit()
+  gfx.init("AiNOMEATOR", 320, expected_h, 0, x, y)
+  load_logo()
+end
+
 local function update_gui()
   local mouse_pressed = (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0)
   last_mouse_cap = gfx.mouse_cap
@@ -2030,92 +2476,113 @@ local function update_gui()
         end
       end
 
-      -- Clique no checkbox "Apenas faixas selecionadas"
-      local opt = layout.only_selected
-      if in_rect(opt.x, opt.y, opt.w, opt.h) then
-        only_selected = not only_selected
+      -- Clique no toggle de Opções Avançadas
+      local toggle = {
+        x = layout.advanced_toggle.x,
+        y = show_advanced and layout.advanced_toggle.y or COMPACT_TOGGLE_Y,
+        w = layout.advanced_toggle.w,
+        h = layout.advanced_toggle.h,
+      }
+      if in_rect(toggle.x, toggle.y, toggle.w, toggle.h) then
+        show_advanced = not show_advanced
+        reaper.SetExtState("AiNOMEATOR", "show_advanced", show_advanced and "true" or "false", true)
+        
+        -- Redimensionar a janela
+        local expected_h = show_advanced and 770 or COMPACT_WINDOW_H
+        resize_window(expected_h)
         return "redraw"
       end
 
-      -- Clique no checkbox "Ordenar por instrumento"
-      local opt_s = layout.sort_tracks
-      if in_rect(opt_s.x, opt_s.y, opt_s.w, opt_s.h) then
-        sort_tracks = not sort_tracks
-        reaper.SetExtState("AiNOMEATOR", "sort_tracks", sort_tracks and "true" or "false", true)
-        return "redraw"
-      end
-
-      -- Clicou Radio 1 "Análise rápida"
-      local r1 = layout.mode_fast
-      if in_rect(r1.x, r1.y, r1.w, r1.h) then
-        analysis_mode = "fast"
-        return "redraw"
-      end
-
-      -- Clicou Radio 2 "Análise detalhada"
-      local r2 = layout.mode_detailed
-      if in_rect(r2.x, r2.y, r2.w, r2.h) then
-        analysis_mode = "detailed"
-        return "redraw"
-      end
-
-      -- Clique nos botões de Rádio do Backend
-      local cb_x, cb_size = layout.backend_cb_x, layout.backend_cb_size
-      for i, opt_backend in ipairs(backend_options) do
-        local opt_y = layout.backend_start_y + (i - 1) * layout.backend_spacing_y
-        if in_rect(cb_x, opt_y, cb_size, cb_size) then
-          backend = opt_backend.key
-          reaper.SetExtState("AiNOMEATOR", "backend", backend, true)
+      if show_advanced then
+        -- Clique no checkbox "Apenas faixas selecionadas"
+        local opt = layout.only_selected
+        if in_rect(opt.x, opt.y, opt.w, opt.h) then
+          only_selected = not only_selected
           return "redraw"
         end
-      end
 
-      -- Clique no Theme Selector
-      local ts = layout.theme_selector
-      if in_rect(ts.x, ts.y, ts.w, ts.h) then
-        local current_idx = 1
-        for idx, opt in ipairs(theme_options) do
-          if opt.key == current_theme then
-            current_idx = idx
+        -- Clique no checkbox "Ordenar por instrumento"
+        local opt_s = layout.sort_tracks
+        if in_rect(opt_s.x, opt_s.y, opt_s.w, opt_s.h) then
+          sort_tracks = not sort_tracks
+          reaper.SetExtState("AiNOMEATOR", "sort_tracks", sort_tracks and "true" or "false", true)
+          return "redraw"
+        end
+
+        -- Clicou Radio 1 "Análise rápida"
+        local r1 = layout.mode_fast
+        if in_rect(r1.x, r1.y, r1.w, r1.h) then
+          analysis_mode = "fast"
+          return "redraw"
+        end
+
+        -- Clicou Radio 2 "Análise detalhada"
+        local r2 = layout.mode_detailed
+        if in_rect(r2.x, r2.y, r2.w, r2.h) then
+          analysis_mode = "detailed"
+          return "redraw"
+        end
+
+        -- Clique nos botões de Rádio do Backend
+        local cb_x, cb_size = layout.backend_cb_x, layout.backend_cb_size
+        for i, opt_backend in ipairs(backend_options) do
+          local opt_y = layout.backend_start_y + (i - 1) * layout.backend_spacing_y
+          if in_rect(cb_x, opt_y, cb_size, cb_size) then
+            backend = opt_backend.key
+            reaper.SetExtState("AiNOMEATOR", "backend", backend, true)
+            return "redraw"
+          end
+        end
+
+        -- Clique no Theme Selector
+        local ts = layout.theme_selector
+        if in_rect(ts.x, ts.y, ts.w, ts.h) then
+          local current_idx = 1
+          for idx, opt in ipairs(theme_options) do
+            if opt.key == current_theme then
+              current_idx = idx
+              break
+            end
+          end
+          current_idx = current_idx + 1
+          if current_idx > #theme_options then
+            current_idx = 1
+          end
+          current_theme = theme_options[current_idx].key
+          reaper.SetExtState("AiNOMEATOR", "theme", current_theme, true)
+          
+          -- Escreve a paleta se for um tema fixo
+          if current_theme ~= "custom" then
+            write_theme_to_ini(current_theme)
+            inputs[2].val = "" -- limpa o prompt
+          end
+          focused_input = nil
+          return "redraw"
+        end
+
+        -- Clique nos campos de texto
+        local clicked_input = false
+        for i, inp in ipairs(inputs) do
+          if in_rect(inp.x, inp.y, inp.w, inp.h) then
+            if i == 2 and current_theme ~= "custom" then
+              -- desabilitado
+            else
+              focused_input = i
+              clicked_input = true
+            end
             break
           end
         end
-        current_idx = current_idx + 1
-        if current_idx > #theme_options then
-          current_idx = 1
+        if not clicked_input then
+          focused_input = nil
         end
-        current_theme = theme_options[current_idx].key
-        reaper.SetExtState("AiNOMEATOR", "theme", current_theme, true)
-        
-        -- Escreve a paleta se for um tema fixo
-        if current_theme ~= "custom" then
-          write_theme_to_ini(current_theme)
-          inputs[2].val = "" -- limpa o prompt
-        end
-        focused_input = nil
-        return "redraw"
-      end
-
-      -- Clique nos campos de texto
-      local clicked_input = false
-      for i, inp in ipairs(inputs) do
-        if in_rect(inp.x, inp.y, inp.w, inp.h) then
-          if i == 2 and current_theme ~= "custom" then
-            -- desabilitado
-          else
-            focused_input = i
-            clicked_input = true
-          end
-          break
-        end
-      end
-      if not clicked_input then
-        focused_input = nil
       end
 
       -- Clique no botao ANALISAR
-      local btn = layout.analyze
-      if in_rect(btn.x, btn.y, btn.w, btn.h) then
+      local btn_y = show_advanced and layout.analyze.y or COMPACT_BTN_Y
+      local btn_w = layout.analyze.w
+      local btn_h = show_advanced and layout.analyze.h or COMPACT_BTN_H
+      if in_rect(30, btn_y, btn_w, btn_h) then
         return "run"
       end
 
@@ -2123,13 +2590,20 @@ local function update_gui()
       gfx.setfont(1, "Segoe UI", 10)
       local cr_w, cr_h = gfx.measurestr("by jasko")
       local cr_x = (gfx.w - cr_w) / 2
-      local cr_y = 746
+      local cr_y = show_advanced and 701 or COMPACT_CREDITS_Y
       if in_rect(cr_x, cr_y, cr_w, cr_h) then
         open_url("https://jasko.dev")
         return "redraw"
       end
 
     elseif gui_state == "analyzing" or gui_state == "completed" or gui_state == "error" then
+      -- Clique no botao de alternar visualizacao
+      local btn_toggle = layout.toggle_view
+      if in_rect(btn_toggle.x, btn_toggle.y, btn_toggle.w, btn_toggle.h) then
+        show_text_log = not show_text_log
+        return "redraw"
+      end
+
       -- Clique no botao de copiar logs
       local btn = layout.copy_logs
       if in_rect(btn.x, btn.y, btn.w, btn.h) then
@@ -2139,6 +2613,24 @@ local function update_gui()
         else
           reaper.ShowConsoleMsg(table.concat(gui_logs, "\n") .. "\n")
           reaper.MB(t("msg_sent_console"), "AiNOMEATOR", 0)
+        end
+      end
+
+      -- Clique no botao CANCELAR (apenas se analyzing)
+      if gui_state == "analyzing" then
+        local cancel_btn = layout.close
+        if in_rect(cancel_btn.x, cancel_btn.y, cancel_btn.w, cancel_btn.h) then
+          if cancel_path and cancel_path ~= "" then
+            local f = io.open(cancel_path, "w")
+            if f then
+              f:write("cancel")
+              f:close()
+            end
+          end
+          gui_state = "config"
+          local expected_h = show_advanced and 770 or 300
+          resize_window(expected_h)
+          return "redraw"
         end
       end
 
@@ -2216,8 +2708,12 @@ local function run_gui_loop()
   end
 
   -- Travar o resize
-  if gfx.w ~= 320 or gfx.h ~= 740 then
-    gfx.init("AiNOMEATOR", 320, 740, 0, gfx.x, gfx.y)
+  local expected_h = 680
+  if gui_state == "config" then
+    expected_h = show_advanced and 770 or 300
+  end
+  if gfx.w ~= 320 or gfx.h ~= expected_h then
+    resize_window(expected_h)
   end
 
   draw_gui()

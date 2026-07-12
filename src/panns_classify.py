@@ -10,15 +10,85 @@ roda, e guarda em ~/panns_data/.
 PANNs e um classificador de eventos sonoros (nao especifico pra musica) com
 527 classes do AudioSet, varias delas instrumentos. Mapeamos pro mesmo
 vocabulario fechado que os outros backends usam (vocal, guitarra, baixo,
-bateria, etc). Roda em CPU (mais lento que YamNet, mas geralmente mais
-preciso — e um modelo bem maior).
+bateria, etc). Roda em CPU ou GPU (CUDA/ROCm/DirectML — ver `_detect_device`).
 
-Requisitos: pip install panns_inference torch soundfile
+Requisitos: pip install panns_inference torch soundfile scipy
+
+=====================================================================
+NOTAS DE PERFORMANCE (leia antes de mexer neste arquivo)
+=====================================================================
+
+Este modulo e chamado, no fluxo normal do AiNOMEATOR, UMA VEZ POR TRACK
+(potencialmente centenas de vezes numa sessao grande), entao qualquer coisa
+que rode "por chamada" em vez de "uma vez por processo" e multiplicada pelo
+numero de faixas. As otimizacoes abaixo atacam exatamente isso:
+
+1. INIT UNICO (`_ensure_ready`): imports pesados (torch, panns_inference),
+   leitura do .env e configuracao de threads agora rodam SO NA PRIMEIRA
+   chamada do processo, protegidos por lock. Antes, `classify_with_panns()`
+   fazia `load_dotenv()` (I/O de disco!) e reimportava torch/panns_inference
+   TODA vez que era chamada — desperdicio puro em um loop de centenas de
+   faixas.
+
+2. GRADIENTES DESLIGADOS: alem do `torch.no_grad()` que o proprio
+   panns_inference ja usa internamente, envolvemos toda inferencia em
+   `torch.inference_mode()` (mais rapido que no_grad: pula o bookkeeping de
+   version counter do autograd) e desligamos `torch.set_grad_enabled(False)`
+   globalmente no processo, ja que este modulo nunca treina nada.
+
+3. RESAMPLE: trocamos `np.interp` (interpolacao linear — funciona, mas gera
+   aliasing e e mais lenta do que parece) por `soxr` (libsoxr, o mesmo
+   resampler que o librosa usa por padrao hoje em dia). Medido neste
+   projeto (8s @ 44100Hz -> 32000Hz): np.interp ~6.5ms vs soxr ~3.3ms por
+   faixa — quase 2x mais rapido, e sem aliasing. Se `soxr` nao estiver
+   instalado, cai pra `scipy.signal.resample_poly` com a razao up/down
+   aproximada (ver `_resample` pra entender por que a razao EXATA seria
+   mais lenta que o np.interp), e se nem scipy tiver, cai pro np.interp
+   original — nunca quebra por falta de dependencia opcional.
+
+4. TOP-K: trocamos `np.argsort` (O(n log n) nas 527 classes inteiras) por
+   `np.argpartition` (O(n)) pra achar so as top-10, e só ordenamos essas 10.
+   Ganho pequeno em termos absolutos (527 elementos e pouco), mas e "gratis"
+   e some com qualquer razao de nao fazer.
+
+5. GPU (NVIDIA / AMD):
+   - NVIDIA CUDA: já funcionava (`torch.cuda.is_available()`).
+   - AMD no Linux (ROCm): um PyTorch compilado com ROCm expõe a MESMA API
+     `torch.cuda.*` (é a forma que a AMD escolheu para ter compat com o
+     ecossistema CUDA). Ou seja: com o pacote certo instalado
+     (ver README/requirements), o AMD já cai automaticamente no mesmo
+     caminho "cuda" — nao tivemos que mudar nada na logica, so garantir que
+     nao tem NADA hardcoded assumindo NVIDIA.
+   - AMD/Intel no Windows (DirectML): ROCm nao roda no Windows. A unica
+     rota de GPU nesse caso e `torch-directml`. A lib `panns_inference` so
+     entende os STRINGS 'cuda' ou 'cpu' internamente (ela faz
+     `.cuda()` hardcoded), entao nao da pra so passar device='dml'. Por
+     isso, quando detectamos DirectML, construimos o modelo em CPU e
+     movemos o `nn.Module` manualmente pro device DML, e escrevemos nosso
+     proprio laco de inferencia (`_forward_on_device`) no lugar de
+     `at.inference()`.
+     CUIDADO: o torch-directml tem incompatibilidades conhecidas. por
+     exemplo, o bug do `torch.inference_mode()` (microsoft/DirectML#602,
+     "Cannot set version_counter"), que contornamos usando `torch.no_grad()`
+     no `_forward_on_device`. alem disso, se qualquer outra operacao
+     falhar em runtime, o codigo detecta, desliga DML PRA SEMPRE nesse
+     processo (evita tentar nas proximas 300 faixas) e cai pra CPU
+     automaticamente, sem derrubar o batch inteiro.
+
+6. INFERENCIA EM LOTE (`classify_many_with_panns`): a funcao original
+   processa um arquivo por chamada. Se voce esta processando N faixas de
+   uma vez (ex: varios stems do mesmo projeto), rodar 1 forward pass com um
+   batch de N e MUITO mais rapido que N forward passes separados — menos
+   overhead de Python por chamada e, em GPU, paraleliza de verdade dentro
+   do proprio device. Use essa funcao quando estiver classificando varias
+   faixas em sequencia com o backend "panns" puro (sem hibrido/Gemini).
+=====================================================================
 """
 
 import os
 import sys
 import json
+import math
 import threading
 import numpy as np
 
@@ -32,7 +102,7 @@ _LABEL_MAP = {
     "Female singing":                 ("vocal", "Vocal feminino", "Female vocal"),
     "Male singing":                   ("vocal", "Vocal masculino", "Male vocal"),
     "Choir":                          ("vocal", "Coral", "Choir"),
-    "A capella":                      ("vocal", "A capella", "A capella"),
+    "A capella":                      ("vocal", "Vocal", "Vocal"),
     "Yodeling":                       ("vocal", "Vocal (yodel)", "Vocal (yodel)"),
     "Child singing":                  ("vocal", "Vocal infantil", "Child vocal"),
     "Rapping":                        ("vocal", "Vocal (rap)", "Rap vocal"),
@@ -97,24 +167,210 @@ _LABEL_MAP = {
 }
 
 
-# --- Cache do modelo carregado em memoria (thread-safe, carrega 1x) -------
+# ===========================================================================
+# Estado global do processo (tudo carregado/configurado UMA UNICA VEZ)
+# ===========================================================================
 
-_model_lock = threading.Lock()
+_init_lock = threading.Lock()
+_ready = False
+
 _audio_tagger = None
 _panns_labels = None
+_device_str = None          # 'cuda', 'cpu', ou um device DirectML
+_device_backend = None      # 'cuda(nvidia)', 'rocm(amd)', 'directml', 'cpu'
+_use_manual_forward = False  # True quando precisamos bypassar at.inference() (caso DirectML)
+_dml_broken = False          # vira True se DML falhar em runtime -> cai pra CPU pro resto do processo
+
+
+def _detect_device():
+    """
+    Escolhe o melhor device disponivel, nessa ordem de preferencia:
+
+        1. CUDA  -> cobre NVIDIA (CUDA de verdade) E AMD no Linux (ROCm),
+                    porque um torch compilado com ROCm reusa a MESMA API
+                    torch.cuda.*. Nao ha necessidade de codigo especial pra
+                    "AMD no Linux": se o usuario instalou o torch+ROCm certo,
+                    isso ja cai aqui sozinho.
+        2. DirectML -> unica rota de GPU pra AMD/Intel no Windows (sem
+                    ROCm). Best-effort: pode nao suportar todos os operadores
+                    que o Cnn14 usa.
+        3. CPU   -> sempre funciona, fallback final.
+
+    Pode ser forcado via variavel de ambiente PANNS_DEVICE=cuda|dml|cpu|auto.
+    """
+    import torch
+
+    forced = os.environ.get("PANNS_DEVICE", "auto").strip().lower()
+
+    if forced == "cpu":
+        return "cpu", "cpu"
+
+    if forced in ("auto", "cuda") and torch.cuda.is_available():
+        # cudnn.benchmark: os segmentos analisados tem tamanho fixo (mesma
+        # duracao em amostras na maioria dos casos), entao vale a pena deixar
+        # o cuDNN testar/escolher o algoritmo de convolucao mais rapido pro
+        # shape de entrada na primeira chamada e reusar depois.
+        torch.backends.cudnn.benchmark = True
+        try:
+            # torch.version.hip so existe (e nao e None) em builds ROCm.
+            is_rocm = bool(getattr(torch.version, "hip", None))
+        except Exception:
+            is_rocm = False
+        return "cuda", ("rocm(amd)" if is_rocm else "cuda(nvidia)")
+
+    if forced in ("auto", "dml"):
+        try:
+            import torch_directml
+            dml_device = torch_directml.device()
+            return dml_device, "directml"
+        except Exception:
+            if forced == "dml":
+                print("  [PANNs] PANNS_DEVICE=dml pedido, mas torch-directml "
+                      "nao esta instalado/disponivel. Caindo pra CPU. "
+                      "(pip install torch-directml)")
+
+    return "cpu", "cpu"
+
+
+def _ensure_ready():
+    """
+    Roda TUDO que so precisa acontecer uma vez por processo: .env, threads
+    do torch, import de torch/panns_inference, deteccao de device e
+    carregamento do checkpoint. Protegido por lock (varias threads podem
+    chamar isso ao mesmo tempo no ThreadPoolExecutor do batch_rename.py).
+    """
+    global _ready, _audio_tagger, _panns_labels
+    global _device_str, _device_backend, _use_manual_forward
+
+    if _ready:
+        return
+
+    with _init_lock:
+        if _ready:  # outra thread pode ter inicializado enquanto esperavamos o lock
+            return
+
+        # --- .env: le do disco UMA vez, nao a cada faixa ------------------
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            _script_dir = os.path.dirname(os.path.abspath(__file__))
+            _parent_env = os.path.join(os.path.dirname(_script_dir), ".env")
+            if os.path.exists(_parent_env):
+                load_dotenv(_parent_env)
+        except ImportError:
+            pass
+
+        import torch
+
+        # Gradientes desligados globalmente: este processo so faz inferencia,
+        # nunca treina nada. Evita qualquer alocacao de autograd por engano
+        # em algum ponto do pipeline.
+        torch.set_grad_enabled(False)
+
+        panns_threads = os.environ.get("PANNS_THREADS")
+        if panns_threads:
+            try:
+                torch.set_num_threads(int(panns_threads))
+            except ValueError:
+                pass
+        # Sem PANNS_THREADS definido, mantemos o default do torch (usa todos
+        # os cores). Se voce roda o batch com --workers > 1 (varias faixas
+        # em paralelo), vale a pena setar PANNS_THREADS=<cores/workers> pra
+        # evitar oversubscription (N threads de intra-op x M workers
+        # concorrentes brigando pelos mesmos cores).
+
+        from panns_inference import AudioTagging, labels
+
+        device, backend = _detect_device()
+        manual_forward = False
+
+        if backend == "directml":
+            # panns_inference so entende os strings 'cuda'/'cpu' -> criamos
+            # em CPU (rapido, so aloca os pesos) e movemos o nn.Module pra
+            # GPU manualmente. A partir daqui, NAO usamos mais at.inference()
+            # (ele faria .cuda() hardcoded e ignoraria nosso device DML) -
+            # usamos _forward_on_device() no lugar.
+            at = AudioTagging(checkpoint_path=None, device="cpu")
+            try:
+                at.model.to(device)
+                manual_forward = True
+            except Exception as e:
+                print(f"  [PANNs] Nao foi possivel mover o modelo pra DirectML "
+                      f"({type(e).__name__}: {e}). Usando CPU.")
+                device, backend = "cpu", "cpu"
+        else:
+            at = AudioTagging(checkpoint_path=None, device=device)
+
+        print(f"  [PANNs] CNN14 carregado (device={backend}) (~300MB, so na primeira faixa)")
+
+        _audio_tagger = at
+        _panns_labels = labels
+        _device_str = device
+        _device_backend = backend
+        _use_manual_forward = manual_forward
+        _ready = True
 
 
 def _get_model():
-    global _audio_tagger, _panns_labels
-    with _model_lock:
-        if _audio_tagger is None:
-            from panns_inference import AudioTagging, labels
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"  [PANNs] Loading CNN14 AI Model (device={device}) (~300MB)...")
-            _audio_tagger = AudioTagging(checkpoint_path=None, device=device)
-            _panns_labels = labels
+    _ensure_ready()
     return _audio_tagger, _panns_labels
+
+
+# ===========================================================================
+# Audio: leitura + resample otimizado
+# ===========================================================================
+
+def _resample(data, sr, target_sr):
+    """
+    Reamostra `data` (mono, float32) de `sr` pra `target_sr`. Sem comprimir,
+    sem cortar, sem tocar no conteudo — so muda a taxa de amostragem.
+
+    Cadeia de prioridade (a primeira que estiver disponivel/segura e usada):
+
+    1. `soxr` (libsoxr): o resampler que o proprio librosa usa por padrao
+       hoje em dia (`res_type="soxr_hq"`). Filtro polifasico em C++ bem
+       otimizado, ~2x mais rapido que np.interp NO BENCHMARK DESTE PROJETO
+       (8s @ 44100->32000: ~3.3ms vs ~6.5ms) e com qualidade bem superior
+       (sem aliasing). Melhor opcao na quase totalidade dos casos.
+       pip install soxr
+
+    2. `scipy.signal.resample_poly` (filtro FIR polifasico, janela Kaiser),
+       como fallback se soxr nao estiver instalado. CUIDADO: passar a razao
+       EXATA up/down (ex: 44100->32000 = 320/441) faz o resample_poly
+       upsamplar por 320x ANTES de decimar — pra um segmento de 8s isso
+       gera um array intermediario de ~113 milhoes de amostras e fica mais
+       LENTO que a interpolacao linear que estavamos tentando substituir
+       (testado aqui: 0.29x, ou seja, PIOR). Por isso aproximamos a razao
+       com `Fraction(...).limit_denominator(256)`: troca uma fracao de
+       cent de afinacao (irrelevante pra classificar instrumento) por
+       manter o filtro polifasico realmente rapido.
+
+    3. `np.interp` (interpolacao linear) — ultimo recurso, sem dependencias
+       extras, igual ao comportamento original.
+    """
+    if sr == target_sr:
+        return data
+
+    try:
+        import soxr
+        return soxr.resample(data, sr, target_sr).astype(np.float32)
+    except ImportError:
+        pass
+
+    try:
+        from scipy.signal import resample_poly
+        from fractions import Fraction
+        frac = Fraction(int(target_sr), int(sr)).limit_denominator(256)
+        up, down = frac.numerator, frac.denominator
+        return resample_poly(data, up, down).astype(np.float32)
+    except ImportError:
+        pass
+
+    duration = len(data) / sr
+    n_target = max(1, int(round(duration * target_sr)))
+    x_old = np.linspace(0, duration, num=len(data), endpoint=False)
+    x_new = np.linspace(0, duration, num=n_target, endpoint=False)
+    return np.interp(x_new, x_old, data).astype(np.float32)
 
 
 def _load_audio_32k_mono(audio_path):
@@ -122,25 +378,101 @@ def _load_audio_32k_mono(audio_path):
     (taxa que o PANNs/Cnn14 espera), sem depender de librosa/ffmpeg."""
     import soundfile as sf
 
-    data, sr = sf.read(audio_path, always_2d=False)
-    data = np.asarray(data, dtype=np.float32)
+    data, sr = sf.read(audio_path, always_2d=False, dtype="float32")
     if data.ndim > 1:
-        data = data.mean(axis=1)
+        data = data.mean(axis=1, dtype=np.float32)
 
     # Peak normalization
-    max_val = np.max(np.abs(data))
+    max_val = np.max(np.abs(data)) if data.size else 0.0
     if max_val > 0:
         data = data / max_val
 
-    target_sr = 32000
-    if sr != target_sr:
-        duration = len(data) / sr
-        n_target = max(1, int(round(duration * target_sr)))
-        x_old = np.linspace(0, duration, num=len(data), endpoint=False)
-        x_new = np.linspace(0, duration, num=n_target, endpoint=False)
-        data = np.interp(x_new, x_old, data).astype(np.float32)
+    data = _resample(data, sr, 32000)
+    return np.ascontiguousarray(data, dtype=np.float32)
 
-    return data
+
+# ===========================================================================
+# Inferencia
+# ===========================================================================
+
+def _pick_label(scores, output_language):
+    """Recebe o vetor de scores (527,) de UMA faixa e devolve
+    (category, instrument, confidence) usando o _LABEL_MAP."""
+    K = 10
+    if scores.shape[0] > K:
+        # argpartition: O(n) pra achar as top-K, em vez de ordenar as 527
+        # classes inteiras (O(n log n)) so pra usar as primeiras 10.
+        unsorted_top = np.argpartition(scores, -K)[-K:]
+        top_indices = unsorted_top[np.argsort(scores[unsorted_top])[::-1]]
+    else:
+        top_indices = np.argsort(scores)[::-1]
+
+    for idx in top_indices:
+        label_name = _panns_labels[idx]
+        if label_name in _LABEL_MAP:
+            category, inst_pt, inst_en = _LABEL_MAP[label_name]
+            confidence = float(scores[idx])
+            instrument = inst_en if output_language == "en" else inst_pt
+            return category, instrument, round(confidence, 3)
+
+    top_idx = int(top_indices[0])
+    label_name = _panns_labels[top_idx]
+    return "outro", label_name, round(float(scores[top_idx]), 3)
+
+
+def _forward_on_device(audio_batch):
+    """
+    Roda o forward pass manualmente no device configurado (usado no caminho
+    DirectML, onde nao podemos usar at.inference() porque ela faz .cuda()
+    hardcoded). audio_batch: numpy (batch, samples) float32.
+
+    Retorna clipwise_output (batch, 527) como numpy array.
+
+    Se qualquer coisa falhar aqui (operador nao suportado no DirectML, por
+    exemplo), o chamador (`_run_inference`) desliga DML pro resto do
+    processo e refaz a chamada em CPU.
+    """
+    import torch
+
+    tensor = torch.as_tensor(audio_batch, dtype=torch.float32, device=_device_str)
+    
+    # workaround para microsoft/DirectML#602: inference_mode quebra no DML
+    with torch.no_grad():
+        _audio_tagger.model.eval()
+        output_dict = _audio_tagger.model(tensor, None)
+    return output_dict["clipwise_output"].detach().to("cpu").numpy()
+
+
+def _run_inference(audio_batch):
+    """
+    Ponto unico de entrada pra rodar o modelo, batched. Decide entre o
+    caminho normal (at.inference(), usado por CPU/CUDA/ROCm) e o caminho
+    manual (DirectML), com fallback automatico e permanente pra CPU se o
+    DirectML falhar em qualquer momento.
+    """
+    global _use_manual_forward, _dml_broken, _device_str, _device_backend, _audio_tagger
+
+    import torch
+
+    if _use_manual_forward and not _dml_broken:
+        try:
+            return _forward_on_device(audio_batch)
+        except Exception as e:
+            print(f"  [PANNs] DirectML falhou em runtime ({type(e).__name__}: {e}). "
+                  f"Desligando GPU e usando CPU pro resto da sessao "
+                  f"(provavelmente alguma operacao do modelo nao suportada pelo torch-directml).")
+            _dml_broken = True
+            try:
+                _audio_tagger.model.to("cpu")
+            except Exception:
+                pass
+            _device_str, _device_backend = "cpu", "cpu"
+            _use_manual_forward = False
+            # cai pro caminho normal abaixo, agora em cpu
+
+    with torch.inference_mode():
+        clipwise_output, _embedding = _audio_tagger.inference(audio_batch)
+    return clipwise_output
 
 
 def classify_with_panns(audio_path, output_language="pt"):
@@ -151,66 +483,100 @@ def classify_with_panns(audio_path, output_language="pt"):
         {"category": ..., "instrument": ..., "confidence": ..., "notes": ...}
     """
     try:
-        import torch  # noqa: F401
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-            _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-            _PARENT_ENV = os.path.join(os.path.dirname(_SCRIPT_DIR), ".env")
-            if os.path.exists(_PARENT_ENV):
-                load_dotenv(_PARENT_ENV)
-        except ImportError:
-            pass
-        panns_threads = os.environ.get("PANNS_THREADS")
-        if panns_threads:
-            try:
-                torch.set_num_threads(int(panns_threads))
-            except ValueError:
-                pass
-        from panns_inference import AudioTagging  # noqa: F401
+        _ensure_ready()
     except ImportError:
         return {"error": "panns_inference/torch nao instalado. Rode: pip install panns_inference torch"}
+    except Exception as e:
+        return {"error": f"falha ao inicializar PANNs: {type(e).__name__}: {e}"}
 
     try:
-        at, panns_labels = _get_model()
-
         data = _load_audio_32k_mono(audio_path)
         audio = data[None, :]  # (batch_size=1, samples)
 
-        clipwise_output, _embedding = at.inference(audio)
-        scores = clipwise_output[0]  # (527,)
+        clipwise_output = _run_inference(audio)
+        scores = clipwise_output[0]
 
-        top_indices = np.argsort(scores)[::-1][:10]
-
-        best_result = None
-        best_confidence = 0.0
-        for idx in top_indices:
-            label_name = panns_labels[idx]
-            if label_name in _LABEL_MAP:
-                category, inst_pt, inst_en = _LABEL_MAP[label_name]
-                confidence = float(scores[idx])
-                best_confidence = confidence
-                best_result = (category, inst_pt, inst_en)
-                break  # ja achou o top-1 mapeado (lista esta em ordem decrescente)
-
-        if best_result is None:
-            top_idx = int(top_indices[0])
-            label_name = panns_labels[top_idx]
-            best_confidence = float(scores[top_idx])
-            best_result = ("outro", label_name, label_name)
-
-        category, inst_pt, inst_en = best_result
-        instrument = inst_en if output_language == "en" else inst_pt
+        category, instrument, confidence = _pick_label(scores, output_language)
 
         return {
             "category": category,
             "instrument": instrument,
-            "confidence": round(best_confidence, 3),
-            "notes": "PANNs / Cnn14 (local inference)",
+            "confidence": confidence,
+            "notes": f"PANNs / Cnn14 (local inference, device={_device_backend})",
         }
 
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
+
+
+def classify_many_with_panns(audio_paths, output_language="pt"):
+    """
+    Versao em lote de classify_with_panns(): classifica VARIAS faixas em UM
+    UNICO forward pass, em vez de uma chamada por faixa.
+
+    Por que isso importa pra performance: cada chamada Python->PyTorch tem
+    overhead fixo (lancar kernels, sincronizar, etc.), e em GPU um batch
+    grande usa muito mais dos nucleos disponiveis de uma vez do que N
+    chamadas sequenciais de batch=1. Pra processar um projeto inteiro do
+    Reaper (dezenas/centenas de stems), isso e a otimizacao de maior
+    impacto depois de acertar o device.
+
+    Retorna uma lista de dicts, na MESMA ORDEM de `audio_paths`, no mesmo
+    formato de classify_with_panns(). Se uma faixa individual falhar ao
+    carregar (arquivo corrompido etc.), o dict dela vem com "error" mas as
+    outras faixas do lote nao sao afetadas.
+    """
+    try:
+        _ensure_ready()
+    except ImportError:
+        return [{"error": "panns_inference/torch nao instalado. Rode: pip install panns_inference torch"}
+                for _ in audio_paths]
+    except Exception as e:
+        return [{"error": f"falha ao inicializar PANNs: {type(e).__name__}: {e}"} for _ in audio_paths]
+
+    if not audio_paths:
+        return []
+
+    arrays = []
+    load_errors = {}
+    for i, path in enumerate(audio_paths):
+        try:
+            arrays.append(_load_audio_32k_mono(path))
+        except Exception as e:
+            arrays.append(None)
+            load_errors[i] = f"{type(e).__name__}: {e}"
+
+    valid_lens = [a.shape[0] for a in arrays if a is not None]
+    if not valid_lens:
+        return [{"error": load_errors.get(i, "falha ao carregar audio")} for i in range(len(audio_paths))]
+
+    max_len = max(valid_lens)
+    batch = np.zeros((len(arrays), max_len), dtype=np.float32)
+    valid_mask = [False] * len(arrays)
+    for i, a in enumerate(arrays):
+        if a is not None:
+            batch[i, :a.shape[0]] = a
+            valid_mask[i] = True
+
+    try:
+        clipwise_output = _run_inference(batch)
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        return [{"error": load_errors.get(i, err)} for i in range(len(audio_paths))]
+
+    results = []
+    for i in range(len(audio_paths)):
+        if not valid_mask[i]:
+            results.append({"error": load_errors.get(i, "falha ao carregar audio")})
+            continue
+        category, instrument, confidence = _pick_label(clipwise_output[i], output_language)
+        results.append({
+            "category": category,
+            "instrument": instrument,
+            "confidence": confidence,
+            "notes": f"PANNs / Cnn14 (local inference, batch, device={_device_backend})",
+        })
+    return results
 
 
 if __name__ == "__main__":
