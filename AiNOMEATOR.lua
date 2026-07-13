@@ -145,6 +145,18 @@ local function sanitize_shell_arg(s)
   return s:gsub("[^%w%s%,%-_áàâãéèêíóòôõúùûçÁÀÂÃÉÈÊÍÓÒÔÕÚÙÛÇ]", "")
 end
 
+local function sanitize_numeric_input(value, max_val)
+  local digits = tostring(value or ""):gsub("%D", "")
+  if digits == "" then
+    return ""
+  end
+
+  local threads = tonumber(digits) or 1
+  if threads < 1 then threads = 1 end
+  if threads > max_val then threads = max_val end
+  return tostring(threads)
+end
+
 
 -- 0-based track index -> {track=MediaTrack, name=string, audio=nil ou {filename, start, dur}}
 local track_info = {}
