@@ -33,6 +33,7 @@ local script_dir = script_path:match("^(.*[/\\])")
 local os_name = reaper.GetOS()
 local is_windows = os_name:find("Win") ~= nil
 local sep = is_windows and "\\" or "/"
+local ui_font = is_windows and "Segoe UI" or "Arial"
 
 local env_path = script_dir .. ".env"
 local config_path = script_dir .. "colors.ini"
@@ -1188,9 +1189,9 @@ local function start_analysis()
   )
 
   if analysis_mode == "detailed" then
-    python_args = python_args .. ' --quality ' .. t('opt_quality_high')
+    python_args = python_args .. ' --quality alta'
   else
-    python_args = python_args .. ' --quality ' .. t('opt_quality_normal')
+    python_args = python_args .. ' --quality normal'
   end
 
   python_args = python_args .. ' --output-language ' .. sanitize_shell_arg(lang)
@@ -1635,7 +1636,7 @@ local theme_options = {
 
 local function open_url(url)
   local os_name = reaper.GetOS()
-  if os_name:find("Win") then
+  if is_windows then
     os.execute(string.format('start "" "%s"', url))
   elseif os_name:find("OSX") or os_name:find("mac") then
     os.execute(string.format('open "%s"', url))
@@ -1668,13 +1669,12 @@ local function load_logo()
   end
 end
 
-only_selected = false
 sort_tracks = (saved_sort_tracks == "true")
 analysis_mode = "detailed"
 inputs = {
-  { label = t("thread_label"), val = saved_panns_workers, placeholder = "1-20", is_numeric = true, limit = 2, x = -1000, y = -1000, w = 1, h = 1 },
+  { label = t("thread_label"), val = saved_panns_workers, placeholder = "1-20", is_numeric = true, limit = 2, max_val = 20, x = -1000, y = -1000, w = 1, h = 1 },
   { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 595, w = 260, h = 30 },
-  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 30, y = 445, w = 260, h = 30 }
+  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, max_val = 16, x = 30, y = 445, w = 260, h = 30 }
 }
 
 local function refresh_language_labels()
@@ -1698,35 +1698,12 @@ end
 
 refresh_language_labels()
 
-local function sanitize_thread_input(value)
-  local digits = tostring(value or ""):gsub("%D", "")
-  if digits == "" then
-    return ""
-  end
-
-  local threads = tonumber(digits) or 1
-  if threads < 1 then threads = 1 end
-  if threads > 20 then threads = 20 end
-  return tostring(threads)
-end
-
-local function sanitize_local_thread_input(value)
-  local digits = tostring(value or ""):gsub("%D", "")
-  if digits == "" then
-    return ""
-  end
-
-  local threads = tonumber(digits) or 1
-  if threads < 1 then threads = 1 end
-  if threads > 16 then threads = 16 end
-  return tostring(threads)
-end
-
 local focused_input = nil
 local last_mouse_cap = 0
 
 local function draw_logs(x, y, w, h)
-  gfx.setfont(1, "Segoe UI", 11)
+  local font_size = 11
+  gfx.setfont(1, ui_font, font_size)
   gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
   
   local line_height = 16
@@ -1790,7 +1767,7 @@ local function draw_copy_button()
   gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
   gfx.rect(btn.x, btn.y, btn.w, btn.h, 0)
   gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
-  gfx.setfont(1, "Segoe UI", 10)
+  gfx.setfont(1, ui_font, 10)
   local c_text = t("btn_copy_logs")
   local c_tw, c_th = gfx.measurestr(c_text)
   gfx.x = btn.x + (btn.w - c_tw)/2
@@ -1811,7 +1788,7 @@ local function draw_toggle_view_button()
   gfx.rect(btn.x, btn.y, btn.w, btn.h, 0)
   
   gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
-  gfx.setfont(1, "Segoe UI", 10)
+  gfx.setfont(1, ui_font, 10)
   local text = show_text_log and "VISUAL" or "LOG"
   local tw, th = gfx.measurestr(text)
   gfx.x = btn.x + (btn.w - tw) / 2
@@ -1919,7 +1896,7 @@ local function draw_visualizer(box_x, box_y, box_w, box_h)
   
   local num_tracks = #display_tracks
   if num_tracks == 0 then
-    gfx.setfont(1, "Segoe UI", 12)
+    gfx.setfont(1, ui_font, 12)
     gfx.r, gfx.g, gfx.b = 0.5, 0.5, 0.5
     local text = t("msg_no_audio") or "Sem faixas para analisar"
     local tw, th = gfx.measurestr(text)
@@ -1964,7 +1941,7 @@ local function draw_visualizer(box_x, box_y, box_w, box_h)
     gfx.rect(rx, ty, tcp_w, track_h, 0)
     
     if track_h >= 14 then
-      gfx.setfont(1, "Segoe UI", 10)
+      gfx.setfont(1, ui_font, 10)
       gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
       gfx.x = rx + 6
       gfx.y = ty + (track_h - 12) / 2
@@ -2031,7 +2008,7 @@ local function draw_visualizer(box_x, box_y, box_w, box_h)
     
     -- Instrument Name overlay
     if info.status == "ok" and track_h >= 14 then
-      gfx.setfont(1, "Segoe UI", 10, 98)
+      gfx.setfont(1, ui_font, 10)
       gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
       
       local inst_text = info.instrument or ""
@@ -2042,7 +2019,7 @@ local function draw_visualizer(box_x, box_y, box_w, box_h)
         gfx.drawstr(inst_text)
       end
     elseif is_analyzing and track_h >= 14 then
-      gfx.setfont(1, "Segoe UI", 10)
+      gfx.setfont(1, ui_font, 10)
       gfx.r, gfx.g, gfx.b = 0.8, 0.8, 0.8
       local scan_text = "scanning..."
       local sw, sh = gfx.measurestr(scan_text)
@@ -2082,7 +2059,7 @@ local function draw_gui()
     local target_x = (gfx.w - target_w) / 2
     gfx.blit(buf, 1, 0, 0, 0, src_w, src_h, target_x, 15, target_w, target_h)
   else
-    gfx.setfont(1, "Segoe UI", 18, 98) -- Bold
+    gfx.setfont(1, ui_font, 18) -- Bold
     gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
     gfx.x, gfx.y = 30, 30
     gfx.drawstr("AiNOMEATOR")
@@ -2090,7 +2067,7 @@ local function draw_gui()
 
   -- Linha divisoria (oculta no modo compacto — o logo maior já ocupa esse espaço)
   if not is_compact_view then
-    gfx.setfont(1, "Segoe UI", 12)
+    gfx.setfont(1, ui_font, 12)
     gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
     gfx.line(30, 100, 290, 100)
   end
@@ -2102,7 +2079,7 @@ local function draw_gui()
     if in_rect(en.x, en.y, en.w, en.h) then tooltip_to_draw = t("tip_lang_en") end
     if in_rect(pt.x, pt.y, pt.w, pt.h) then tooltip_to_draw = t("tip_lang_pt") end
 
-    gfx.setfont(1, "Segoe UI", 10)
+    gfx.setfont(1, ui_font, 10)
     gfx.r, gfx.g, gfx.b = 0.78, 0.78, 0.78
     gfx.x, gfx.y = en.radio_x + 12, en.radio_y - 7
     gfx.drawstr("EN")
@@ -2139,7 +2116,7 @@ local function draw_gui()
     
     local toggle_label = show_advanced and t("btn_hide_advanced") or t("btn_show_advanced")
     gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-    gfx.setfont(1, "Segoe UI", 10, 98) -- Bold
+    gfx.setfont(1, ui_font, 10) -- Bold
     local t_w, t_h = gfx.measurestr(toggle_label)
     gfx.x = toggle.x + (toggle.w - t_w)/2
     gfx.y = toggle.y + (toggle.h - t_h)/2
@@ -2147,11 +2124,11 @@ local function draw_gui()
 
     if show_advanced then
       -- Opções Gerais Label
-      gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
+      gfx.setfont(1, ui_font, 11) -- Bold
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
       gfx.x, gfx.y = 30, 140
       gfx.drawstr(t("general_label"))
-      gfx.setfont(1, "Segoe UI", 11)
+      gfx.setfont(1, ui_font, 11)
 
       -- Checkbox "Apenas faixas selecionadas"
       local opt = layout.only_selected
@@ -2222,11 +2199,11 @@ local function draw_gui()
       gfx.line(30, 215, 290, 215)
 
       -- Modo de Análise Label
-      gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
+      gfx.setfont(1, ui_font, 11) -- Bold
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
       gfx.x, gfx.y = 30, 225
       gfx.drawstr(t("analysis_mode"))
-      gfx.setfont(1, "Segoe UI", 11)
+      gfx.setfont(1, ui_font, 11)
 
       -- Radio 1: "Análise rápida de pequena amostra"
       local r1 = layout.mode_fast
@@ -2263,11 +2240,11 @@ local function draw_gui()
       gfx.line(30, 270, 290, 270)
 
       -- Backend de Análise Label
-      gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
+      gfx.setfont(1, ui_font, 11) -- Bold
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
       gfx.x, gfx.y = 30, layout.backend_label_y
       gfx.drawstr(t("backend_label"))
-      gfx.setfont(1, "Segoe UI", 11)
+      gfx.setfont(1, ui_font, 11)
 
       local cb_x, cb_size = layout.backend_cb_x, layout.backend_cb_size
       for i, opt in ipairs(backend_options) do
@@ -2296,7 +2273,7 @@ local function draw_gui()
       gfx.line(30, 485, 290, 485)
 
       -- Theme Selector Label
-      gfx.setfont(1, "Segoe UI", 10)
+      gfx.setfont(1, ui_font, 10)
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
       gfx.x, gfx.y = layout.theme_selector.x, layout.theme_selector.y - 20
       gfx.drawstr(t("theme_label"))
@@ -2316,7 +2293,7 @@ local function draw_gui()
 
       -- Theme Selector Text
       gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
-      gfx.setfont(1, "Segoe UI", 10, 98) -- Bold
+      gfx.setfont(1, ui_font, 10) -- Bold
       local theme_text = t("theme_" .. current_theme)
       local tstw, tsth = gfx.measurestr(theme_text)
       gfx.x = ts.x + (ts.w - tstw)/2
@@ -2412,7 +2389,7 @@ local function draw_gui()
 
     -- Info de resumo econômico/faixas dinâmico
     local n_jobs, n_skipped = update_analysis_summary_cached()
-    gfx.setfont(1, "Segoe UI", 11)
+    gfx.setfont(1, ui_font, 11)
     local summary_y1 = show_advanced and 635 or 150
     local summary_y2 = show_advanced and 647 or 162
     if n_jobs == 0 then
@@ -2439,14 +2416,14 @@ local function draw_gui()
     end
     gfx.rect(30, btn_y, btn_w, btn_h, 1)
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
-    gfx.setfont(1, "Segoe UI", 12, 98) -- Bold
+    gfx.setfont(1, ui_font, 12) -- Bold
     local tw, th = gfx.measurestr(t("btn_analyze"))
     gfx.x = 30 + (btn_w - tw)/2
     gfx.y = btn_y + (btn_h - th)/2
     gfx.drawstr(t("btn_analyze"))
 
     -- Aviso experimental
-    gfx.setfont(1, "Segoe UI", 11)
+    gfx.setfont(1, ui_font, 11)
     gfx.r, gfx.g, gfx.b = 0.33, 0.33, 0.33
     local note1 = t("experimental_notice_1")
     local note2 = t("experimental_notice_2")
@@ -2462,7 +2439,7 @@ local function draw_gui()
     gfx.drawstr(note2)
 
     -- Creditos visiveis
-    gfx.setfont(1, "Segoe UI", 10)
+    gfx.setfont(1, ui_font, 10)
     local credit_text = "by jasko"
     local cr_w, cr_h = gfx.measurestr(credit_text)
     local cr_x = (gfx.w - cr_w) / 2
@@ -2492,7 +2469,7 @@ local function draw_gui()
 
   elseif gui_state == "analyzing" then
     -- Subtitulo
-    gfx.setfont(1, "Segoe UI", 12)
+    gfx.setfont(1, ui_font, 12)
     gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
     gfx.x, gfx.y = 30, 110
     gfx.drawstr(t("lbl_analyzing"))
@@ -2527,7 +2504,7 @@ local function draw_gui()
     end
     gfx.rect(btn.x, btn.y, btn.w, btn.h, 1)
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
-    gfx.setfont(1, "Segoe UI", 12, 98) -- Bold
+    gfx.setfont(1, ui_font, 12) -- Bold
     local tw, th = gfx.measurestr(t("btn_cancel"))
     gfx.x = btn.x + (btn.w - tw)/2
     gfx.y = btn.y + (btn.h - th)/2
@@ -2535,7 +2512,7 @@ local function draw_gui()
 
   elseif gui_state == "completed" or gui_state == "error" then
     -- Subtitulo de Sucesso ou Erro
-    gfx.setfont(1, "Segoe UI", 13, 98) -- Bold
+    gfx.setfont(1, ui_font, 13) -- Bold
     gfx.x, gfx.y = 30, 110
     if gui_state == "completed" then
       gfx.r, gfx.g, gfx.b = 0.3, 0.8, 0.3 -- Verde
@@ -2570,7 +2547,7 @@ local function draw_gui()
     end
     gfx.rect(btn.x, btn.y, btn.w, btn.h, 1)
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
-    gfx.setfont(1, "Segoe UI", 12, 98) -- Bold
+    gfx.setfont(1, ui_font, 12) -- Bold
     local tw, th = gfx.measurestr(t("btn_close"))
     gfx.x = btn.x + (btn.w - tw)/2
     gfx.y = btn.y + (btn.h - th)/2
@@ -2578,7 +2555,7 @@ local function draw_gui()
   end
 
   if tooltip_to_draw then
-    gfx.setfont(1, "Segoe UI", 10)
+    gfx.setfont(1, ui_font, 10)
     local t_w, t_h = gfx.measurestr(tooltip_to_draw)
     local tx = lock_tx
     local ty = lock_ty
@@ -2748,7 +2725,7 @@ local function update_gui()
       end
 
       -- Clique nos creditos "by jasko"
-      gfx.setfont(1, "Segoe UI", 10)
+      gfx.setfont(1, ui_font, 10)
       local cr_w, cr_h = gfx.measurestr("by jasko")
       local cr_x = (gfx.w - cr_w) / 2
       local cr_y = show_advanced and 745 or COMPACT_CREDITS_Y
@@ -2838,11 +2815,11 @@ local function update_gui()
         if clip and clip ~= "" then
           clip = clip:gsub("[%r%n\t]", "")
           if inp.is_numeric then
-            clip = sanitize_thread_input(clip)
+            clip = sanitize_numeric_input(clip, inp.max_val or 99)
           end
           inp.val = inp.val .. clip
           if inp.is_numeric then
-            inp.val = sanitize_thread_input(inp.val)
+            inp.val = sanitize_numeric_input(inp.val, inp.max_val or 99)
           elseif #inp.val > inp.limit then
             inp.val = inp.val:sub(1, inp.limit)
           end
@@ -2856,7 +2833,7 @@ local function update_gui()
       if inp.is_numeric then
         if new_char:match("%d") and #inp.val < inp.limit then
           inp.val = inp.val .. new_char
-          inp.val = sanitize_thread_input(inp.val)
+          inp.val = sanitize_numeric_input(inp.val, inp.max_val or 99)
         end
       else
         if #inp.val < inp.limit then
