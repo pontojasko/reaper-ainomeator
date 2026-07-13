@@ -99,13 +99,19 @@ import numpy as np
 _LABEL_MAP = {
     # Vocais
     "Speech":                         ("vocal", "Vocal", "Vocal"),
+    "Singing":                        ("vocal", "Vocal (canto)", "Singing"),
     "Female singing":                 ("vocal", "Vocal feminino", "Female vocal"),
     "Male singing":                   ("vocal", "Vocal masculino", "Male vocal"),
+    "Child singing":                  ("vocal", "Vocal infantil", "Child vocal"),
+    "Synthetic singing":              ("vocal", "Vocal sintetico", "Synthetic vocal"),
     "Choir":                          ("vocal", "Coral", "Choir"),
     "A capella":                      ("vocal", "Vocal", "Vocal"),
     "Yodeling":                       ("vocal", "Vocal (yodel)", "Vocal (yodel)"),
-    "Child singing":                  ("vocal", "Vocal infantil", "Child vocal"),
     "Rapping":                        ("vocal", "Vocal (rap)", "Rap vocal"),
+    "Vocal music":                    ("vocal", "Musica vocal", "Vocal music"),
+    "Humming":                        ("vocal", "Vocal (humming)", "Humming"),
+    "Beatboxing":                     ("vocal", "Vocal (beatbox)", "Beatboxing"),
+    "Whistling":                      ("vocal", "Vocal (assobio)", "Whistling"),
 
     # Bateria / Percussao
     "Snare drum":                     ("bateria", "Bateria (caixa)", "Drums (snare)"),
@@ -124,6 +130,17 @@ _LABEL_MAP = {
     "Gong":                           ("bateria", "Percussao (gongo)", "Gong"),
     "Drum machine":                   ("bateria", "Bateria eletronica", "Drum machine"),
     "Timpani":                        ("bateria", "Percussao (tímpano)", "Timpani"),
+    "Percussion":                     ("bateria", "Percussao", "Percussion"),
+    "Rimshot":                        ("bateria", "Bateria (rimshot)", "Rimshot"),
+    "Tabla":                          ("bateria", "Percussao (tabla)", "Tabla"),
+    "Wood block":                     ("bateria", "Percussao (wood block)", "Wood block"),
+    "Rattle (instrument)":            ("bateria", "Percussao (chocalho)", "Rattle"),
+    "Tubular bells":                  ("bateria", "Percussao (sinos tubulares)", "Tubular bells"),
+    "Mallet percussion":              ("bateria", "Percussao (mallets)", "Mallet percussion"),
+    "Marimba, xylophone":             ("bateria", "Marimba/Xilofone", "Marimba/Xylophone"),
+    "Glockenspiel":                   ("bateria", "Glockenspiel", "Glockenspiel"),
+    "Vibraphone":                     ("bateria", "Vibrafone", "Vibraphone"),
+    "Steelpan":                       ("bateria", "Steel drum", "Steelpan"),
 
     # Baixo
     "Bass guitar":                    ("baixo", "Baixo", "Bass"),
@@ -135,6 +152,10 @@ _LABEL_MAP = {
     "Steel guitar, slide guitar":     ("guitarra", "Guitarra (steel/slide)", "Steel/slide guitar"),
     "Banjo":                          ("guitarra", "Banjo", "Banjo"),
     "Ukulele":                        ("guitarra", "Ukulele", "Ukulele"),
+    "Plucked string instrument":      ("guitarra", "Cordas dedilhadas", "Plucked string"),
+    "Tapping (guitar technique)":     ("guitarra", "Guitarra (tapping)", "Guitar tapping"),
+    "Strum":                          ("guitarra", "Guitarra (dedilhado)", "Strum"),
+    "Sitar":                          ("guitarra", "Sitar", "Sitar"),
 
     # Teclado / Piano
     "Piano":                          ("teclado", "Piano", "Piano"),
@@ -157,6 +178,10 @@ _LABEL_MAP = {
     "French horn":                    ("sopro", "Trompa", "French horn"),
     "Oboe":                           ("sopro", "Oboe", "Oboe"),
     "Brass instrument":               ("sopro", "Metais", "Brass instrument"),
+    "Wind instrument, woodwind instrument": ("sopro", "Sopro (madeiras)", "Woodwind"),
+    "Accordion":                      ("sopro", "Acordeao", "Accordion"),
+    "Bagpipes":                       ("sopro", "Gaita de foles", "Bagpipes"),
+    "Didgeridoo":                     ("sopro", "Didgeridoo", "Didgeridoo"),
 
     # Cordas
     "Violin, fiddle":                 ("cordas", "Violino", "Violin"),
@@ -164,6 +189,63 @@ _LABEL_MAP = {
     "String section":                 ("cordas", "Cordas", "Strings"),
     "Harp":                           ("cordas", "Harpa", "Harp"),
     "Mandolin":                       ("cordas", "Bandolim", "Mandolin"),
+    "Bowed string instrument":        ("cordas", "Cordas (arco)", "Bowed strings"),
+    "Pizzicato":                      ("cordas", "Pizzicato", "Pizzicato"),
+    "Zither":                         ("cordas", "Citara", "Zither"),
+
+    # Outro / Generic Music / Genres
+    "Music":                          ("outro", "Musica", "Music"),
+    "Musical instrument":             ("outro", "Instrumento musical", "Musical instrument"),
+    "Orchestra":                      ("outro", "Orquestra", "Orchestra"),
+    "Pop music":                      ("outro", "Pop", "Pop music"),
+    "Hip hop music":                  ("outro", "Hip hop", "Hip hop music"),
+    "Rock music":                     ("outro", "Rock", "Rock music"),
+    "Punk rock":                      ("outro", "Punk rock", "Punk rock"),
+    "Progressive rock":               ("outro", "Rock progressivo", "Progressive rock"),
+    "Rock and roll":                  ("outro", "Rock and roll", "Rock and roll"),
+    "Psychedelic rock":               ("outro", "Rock psicodelico", "Psychedelic rock"),
+    "Rhythm and blues":               ("outro", "R&B", "Rhythm and blues"),
+    "Soul music":                     ("outro", "Soul", "Soul music"),
+    "Swing music":                    ("outro", "Swing", "Swing music"),
+    "Folk music":                     ("outro", "Folk", "Folk music"),
+    "Middle Eastern music":           ("outro", "Musica do Oriente Medio", "Middle Eastern music"),
+    "Jazz":                           ("outro", "Jazz", "Jazz"),
+    "Classical music":                ("outro", "Musica classica", "Classical music"),
+    "Electronic music":               ("outro", "Musica eletronica", "Electronic music"),
+    "House music":                    ("outro", "House", "House music"),
+    "Electronic dance music":         ("outro", "EDM", "Electronic dance music"),
+    "Ambient music":                  ("outro", "Ambient", "Ambient music"),
+    "Trance music":                   ("outro", "Trance", "Trance music"),
+    "Music of Latin America":         ("outro", "Musica latina", "Latin music"),
+    "Salsa music":                    ("outro", "Salsa", "Salsa music"),
+    "Blues":                          ("outro", "Blues", "Blues"),
+    "Music for children":             ("outro", "Musica infantil", "Children's music"),
+    "New-age music":                  ("outro", "New age", "New-age music"),
+    "Music of Africa":                ("outro", "Musica africana", "African music"),
+    "Christian music":                ("outro", "Musica crista", "Christian music"),
+    "Gospel music":                   ("outro", "Gospel", "Gospel music"),
+    "Music of Asia":                  ("outro", "Musica asiatica", "Asian music"),
+    "Carnatic music":                 ("outro", "Musica carnatica", "Carnatic music"),
+    "Music of Bollywood":             ("outro", "Bollywood", "Bollywood music"),
+    "Traditional music":              ("outro", "Musica tradicional", "Traditional music"),
+    "Independent music":              ("outro", "Musica independente", "Independent music"),
+    "Background music":               ("outro", "Musica de fundo", "Background music"),
+    "Theme music":                    ("outro", "Tema musical", "Theme music"),
+    "Jingle (music)":                 ("outro", "Jingle", "Jingle"),
+    "Soundtrack music":               ("outro", "Trilha sonora", "Soundtrack music"),
+    "Video game music":               ("outro", "Musica de videogame", "Video game music"),
+    "Christmas music":                ("outro", "Musica de natal", "Christmas music"),
+    "Dance music":                    ("outro", "Musica de danca", "Dance music"),
+    "Wedding music":                  ("outro", "Musica de casamento", "Wedding music"),
+    "Happy music":                    ("outro", "Musica alegre", "Happy music"),
+    "Funny music":                    ("outro", "Musica engracada", "Funny music"),
+    "Sad music":                      ("outro", "Musica triste", "Sad music"),
+    "Tender music":                   ("outro", "Musica suave", "Tender music"),
+    "Exciting music":                 ("outro", "Musica empolgante", "Exciting music"),
+    "Angry music":                    ("outro", "Musica agressiva", "Angry music"),
+    "Scary music":                    ("outro", "Musica assustadora", "Scary music"),
+    "Burst, pop":                     ("outro", "Estouro/Pop", "Burst, pop"),
+    "Singing bowl":                   ("outro", "Tigela tibetana", "Singing bowl"),
 }
 
 
@@ -412,27 +494,60 @@ def _load_audio_32k_mono(audio_path):
 
 def _pick_label(scores, output_language):
     """Recebe o vetor de scores (527,) de UMA faixa e devolve
-    (category, instrument, confidence) usando o _LABEL_MAP."""
-    K = 10
-    if scores.shape[0] > K:
-        # argpartition: O(n) pra achar as top-K, em vez de ordenar as 527
-        # classes inteiras (O(n log n)) so pra usar as primeiras 10.
-        unsorted_top = np.argpartition(scores, -K)[-K:]
-        top_indices = unsorted_top[np.argsort(scores[unsorted_top])[::-1]]
-    else:
-        top_indices = np.argsort(scores)[::-1]
+    (category, instrument, confidence) usando o _LABEL_MAP.
+    Agrega as probabilidades dos labels pertencentes a mesma categoria
+    usando Probabilidade da Uniao para maior resiliencia."""
+    THRESHOLD = 0.01  # Ignora ruidos muito baixos pra poupar processamento
+    
+    # Pega todos os indices que passaram do threshold
+    valid_indices = np.where(scores > THRESHOLD)[0]
+    
+    if len(valid_indices) == 0:
+        # Se nao houver nada > threshold, fallback total
+        top_idx = int(np.argmax(scores))
+        return "outro", _panns_labels[top_idx], round(float(scores[top_idx]), 3)
 
-    for idx in top_indices:
+    category_scores = {}
+    category_best_inst = {}
+    category_max_ind_score = {}
+
+    for idx in valid_indices:
         label_name = _panns_labels[idx]
         if label_name in _LABEL_MAP:
             category, inst_pt, inst_en = _LABEL_MAP[label_name]
-            confidence = float(scores[idx])
-            instrument = inst_en if output_language == "en" else inst_pt
-            return category, instrument, round(confidence, 3)
+            score = float(scores[idx])
+            
+            if category not in category_scores:
+                category_scores[category] = 1.0  # Inicia com 1 para usar multiplicacao de (1-P)
+                category_max_ind_score[category] = -1.0
+                
+            # Probabilidade da Uniao: P(A U B) = 1 - (1-A)*(1-B)
+            # Para acumular, guardamos o produtório dos (1-P)
+            category_scores[category] *= (1.0 - score)
+            
+            if score > category_max_ind_score[category]:
+                category_max_ind_score[category] = score
+                category_best_inst[category] = inst_en if output_language == "en" else inst_pt
 
-    top_idx = int(top_indices[0])
-    label_name = _panns_labels[top_idx]
-    return "outro", label_name, round(float(scores[top_idx]), 3)
+    if not category_scores:
+        # Nenhum label mapeado passou do threshold
+        top_idx = int(np.argmax(scores))
+        return "outro", _panns_labels[top_idx], round(float(scores[top_idx]), 3)
+
+    # Converte de volta: 1 - produtorio(1-P)
+    best_category = None
+    best_agg_score = -1.0
+    
+    for category, prod_inv in category_scores.items():
+        agg_score = 1.0 - prod_inv
+        if agg_score > best_agg_score:
+            best_agg_score = agg_score
+            best_category = category
+            
+    # Retorna a categoria vencedora, o nome do instrumento que teve maior
+    # pontuacao individual dentro dessa categoria, e o score agregado.
+    instrument = category_best_inst[best_category]
+    return best_category, instrument, round(best_agg_score, 3)
 
 
 def _forward_on_device(audio_batch):
