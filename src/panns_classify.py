@@ -194,8 +194,6 @@ _LABEL_MAP = {
     "Zither":                         ("cordas", "Citara", "Zither"),
 
     # Outro / Generic Music / Genres
-    "Music":                          ("outro", "Musica", "Music"),
-    "Musical instrument":             ("outro", "Instrumento musical", "Musical instrument"),
     "Orchestra":                      ("outro", "Orquestra", "Orchestra"),
     "Pop music":                      ("outro", "Pop", "Pop music"),
     "Hip hop music":                  ("outro", "Hip hop", "Hip hop music"),
@@ -494,60 +492,27 @@ def _load_audio_32k_mono(audio_path):
 
 def _pick_label(scores, output_language):
     """Recebe o vetor de scores (527,) de UMA faixa e devolve
-    (category, instrument, confidence) usando o _LABEL_MAP.
-    Agrega as probabilidades dos labels pertencentes a mesma categoria
-    usando Probabilidade da Uniao para maior resiliencia."""
-    THRESHOLD = 0.01  # Ignora ruidos muito baixos pra poupar processamento
-    
-    # Pega todos os indices que passaram do threshold
-    valid_indices = np.where(scores > THRESHOLD)[0]
-    
-    if len(valid_indices) == 0:
-        # Se nao houver nada > threshold, fallback total
-        top_idx = int(np.argmax(scores))
-        return "outro", _panns_labels[top_idx], round(float(scores[top_idx]), 3)
+    (category, instrument, confidence) usando o _LABEL_MAP."""
+    K = 10
+    if scores.shape[0] > K:
+        # argpartition: O(n) pra achar as top-K, em vez de ordenar as 527
+        # classes inteiras (O(n log n)) so pra usar as primeiras 10.
+        unsorted_top = np.argpartition(scores, -K)[-K:]
+        top_indices = unsorted_top[np.argsort(scores[unsorted_top])[::-1]]
+    else:
+        top_indices = np.argsort(scores)[::-1]
 
-    category_scores = {}
-    category_best_inst = {}
-    category_max_ind_score = {}
-
-    for idx in valid_indices:
+    for idx in top_indices:
         label_name = _panns_labels[idx]
         if label_name in _LABEL_MAP:
             category, inst_pt, inst_en = _LABEL_MAP[label_name]
-            score = float(scores[idx])
-            
-            if category not in category_scores:
-                category_scores[category] = 1.0  # Inicia com 1 para usar multiplicacao de (1-P)
-                category_max_ind_score[category] = -1.0
-                
-            # Probabilidade da Uniao: P(A U B) = 1 - (1-A)*(1-B)
-            # Para acumular, guardamos o produtório dos (1-P)
-            category_scores[category] *= (1.0 - score)
-            
-            if score > category_max_ind_score[category]:
-                category_max_ind_score[category] = score
-                category_best_inst[category] = inst_en if output_language == "en" else inst_pt
+            confidence = float(scores[idx])
+            instrument = inst_en if output_language == "en" else inst_pt
+            return category, instrument, round(confidence, 3)
 
-    if not category_scores:
-        # Nenhum label mapeado passou do threshold
-        top_idx = int(np.argmax(scores))
-        return "outro", _panns_labels[top_idx], round(float(scores[top_idx]), 3)
-
-    # Converte de volta: 1 - produtorio(1-P)
-    best_category = None
-    best_agg_score = -1.0
-    
-    for category, prod_inv in category_scores.items():
-        agg_score = 1.0 - prod_inv
-        if agg_score > best_agg_score:
-            best_agg_score = agg_score
-            best_category = category
-            
-    # Retorna a categoria vencedora, o nome do instrumento que teve maior
-    # pontuacao individual dentro dessa categoria, e o score agregado.
-    instrument = category_best_inst[best_category]
-    return best_category, instrument, round(best_agg_score, 3)
+    top_idx = int(top_indices[0])
+    label_name = _panns_labels[top_idx]
+    return "outro", label_name, round(float(scores[top_idx]), 3)
 
 
 def _forward_on_device(audio_batch):
