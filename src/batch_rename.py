@@ -726,6 +726,8 @@ def main():
     if os.path.exists(_PARENT_ENV):
         load_dotenv(_PARENT_ENV)
 
+    print(f"  [+] Env / dependencias carregadas [{time.time() - t_start_global:.2f}s]", flush=True)
+
     if args.panns_threads is not None and args.panns_threads > 0:
         os.environ["PANNS_THREADS"] = str(args.panns_threads)
 
@@ -803,8 +805,9 @@ def main():
         try:
             from panns_classify import _ensure_ready
             _ensure_ready()
-        except Exception:
-            pass
+            print(f"  [+] Modelo PANNs carregado com sucesso [{time.time() - t_start_global:.2f}s]", flush=True)
+        except Exception as e:
+            print(f"  [-] Falha no pre-carregamento do PANNs: {e}", flush=True)
 
     cancel_flag = args.done_flag.replace("done_", "cancel_") if args.done_flag else None
     results = {}
@@ -828,6 +831,8 @@ def main():
 
         if valid_entries:
             # Extrair segmentos em paralelo (I/O-bound)
+            print(f"  [!] Extraindo trechos de áudio das tracks [{time.time() - t_start_global:.2f}s]...", flush=True)
+            t_extract = time.time()
             seg_paths = {}
 
             def _extract_seg(entry):
@@ -858,12 +863,17 @@ def main():
                     else:
                         seg_paths[seg_idx] = (seg_path, temp_path)
 
+            print(f"  [+] Extração de áudio concluída [{time.time() - t_start_global:.2f}s] (durou {time.time() - t_extract:.2f}s)", flush=True)
+
             # Batch inference: 1 forward pass
             batch_idxs = [idx for idx in [e[0] for e in valid_entries] if idx in seg_paths]
             batch_paths = [seg_paths[idx][0] for idx in batch_idxs]
 
             if batch_paths:
+                print(f"  [!] Rodando modelo PANNs nas faixas extraídas [{time.time() - t_start_global:.2f}s]...", flush=True)
+                t_inf = time.time()
                 batch_results = classify_many_with_panns(batch_paths, output_language=args.output_language)
+                print(f"  [+] Classificação/inferência concluída [{time.time() - t_start_global:.2f}s] (durou {time.time() - t_inf:.2f}s)", flush=True)
                 for i, idx in enumerate(batch_idxs):
                     r = batch_results[i]
                     if "error" not in r:
