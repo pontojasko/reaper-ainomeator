@@ -251,12 +251,8 @@ def _ensure_ready():
 
         # --- .env: le do disco UMA vez, nao a cada faixa ------------------
         try:
-            from dotenv import load_dotenv
-            load_dotenv()
-            _script_dir = os.path.dirname(os.path.abspath(__file__))
-            _parent_env = os.path.join(os.path.dirname(_script_dir), ".env")
-            if os.path.exists(_parent_env):
-                load_dotenv(_parent_env)
+            from config import load_env
+            load_env()
         except ImportError:
             pass
 
