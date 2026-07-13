@@ -453,7 +453,7 @@ def _pick_label_aggregated(scores: np.ndarray, output_language: str) -> tuple[st
         category, inst_pt, inst_en = _LABEL_MAP[label_name]
         score = float(scores[i])
         cat_scores[category] = cat_scores.get(category, 0.0) + score
-        prev_score, _, _ = cat_best_label.get(category, (0.0, "", ""))
+        prev_score, _, _ = cat_best_label.get(category, (-1.0, "", ""))
         if score > prev_score:
             cat_best_label[category] = (score, inst_pt, inst_en)
 
