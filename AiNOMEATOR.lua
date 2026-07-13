@@ -64,9 +64,6 @@ local create_folders = (saved_create_folders == "true")
 local saved_delete_silent = reaper.GetExtState("AiNOMEATOR", "delete_silent")
 local delete_silent = (saved_delete_silent == "true")
 
-local saved_import_cues = reaper.GetExtState("AiNOMEATOR", "import_cues")
-local import_cues = (saved_import_cues == "true")
-
 
 local strings = {
   en = {
@@ -74,10 +71,8 @@ local strings = {
     sort_tracks = "Sort tracks",
     create_folders = "Intelligent folders",
     delete_silent = "Delete absolute silence",
-    import_cues = "Import cues",
     tip_create_folders = "Automatically groups tracks into instrument folders.",
     tip_delete_silent = "Deletes tracks that contain only absolute silence.",
-    tip_import_cues = "Import media cues/markers from WAV files as project markers.",
     analysis_mode = "Analysis Mode:",
     mode_fast = "Fast",
     mode_detailed = "Detailed",
@@ -99,8 +94,6 @@ local strings = {
     btn_hide_advanced = "Advanced Options  [-]",
     tip_btn_show_advanced = "Toggle advanced settings like CPU threads, analysis backend, and custom color prompt.",
     lbl_analyzing = "Analyzing tracks with AI...",
-    lbl_preparing_model = "Preparing model...",
-    lbl_preparing = "preparing...",
     lbl_completed = "Analysis completed!",
     lbl_error = "Error during processing!",
     msg_no_audio = "No eligible audio tracks found.",
@@ -166,10 +159,8 @@ local strings = {
     sort_tracks = "Ordenar inst.",
     create_folders = "Criar pastas",
     delete_silent = "Apagar silêncio",
-    import_cues = "Passar marcadores",
     tip_create_folders = "Agrupa automaticamente as faixas em pastas de instrumentos.",
     tip_delete_silent = "Apaga faixas que contêm apenas silêncio absoluto (pico zero).",
-    tip_import_cues = "Importa marcações/cues dos arquivos WAV como marcadores do projeto.",
     analysis_mode = "Modo de Análise:",
     mode_fast = "Rápida",
     mode_detailed = "Detalhada",
@@ -191,8 +182,6 @@ local strings = {
     btn_hide_advanced = "Opções Avançadas  [-]",
     tip_btn_show_advanced = "Mostra ou oculta configurações avançadas como backend, threads de CPU e prompt de cores.",
     lbl_analyzing = "Analisando faixas com IA...",
-    lbl_preparing_model = "Preparando modelo...",
-    lbl_preparing = "preparando...",
     lbl_completed = "Analise concluida!",
     lbl_error = "Erro no processamento!",
     msg_no_audio = "Nenhuma faixa de áudio elegível.",
@@ -1010,114 +999,15 @@ end
 local config_colors, created_new = load_config(config_path)
 
 local only_selected = false
-
-local function import_track_media_cues(track)
-  local num_items = reaper.CountTrackMediaItems(track)
-  if num_items == 0 then return false end
-  
-  local item = reaper.GetTrackMediaItem(track, 0) -- Pega apenas o primeiro item para analisar o tempo
-  local take = reaper.GetActiveTake(item)
-  if not take or reaper.TakeIsMIDI(take) then return false end
-  
-  local source = reaper.GetMediaItemTake_Source(take)
-  if not source then return false end
-  
-  local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-  local processed_anything = false
-  
-  -- 1. Tentar ler as propriedades do arquivo para o BPM base
-  local retval, bpm_str = reaper.GetMediaFileMetadata(source, "BPM")
-  if retval and tonumber(bpm_str) then
-    reaper.SetTempoTimeSigMarker(0, -1, item_pos, -1, -1, tonumber(bpm_str), 0, 0, false)
-    processed_anything = true
-  end
-  
-  -- 2. Ler os cues/marcadores do arquivo
-  if reaper.GetMediaSourceNumProjectMarkers then
-    -- Para REAPER 7+
-    local num_cues = reaper.GetMediaSourceNumProjectMarkers(source)
-    for i = 0, num_cues - 1 do
-      local rv, name, isrgn, pos, color = reaper.GetMediaSourceProjectMarker(source, i)
-      if rv then
-        local proj_time = item_pos + pos
-        local num, den = string.match(name, "(%d+)/(%d+)")
-        local tempo = string.match(name, "[Tt]empo:?%s*(%d+%.?%d*)") or string.match(name, "(%d+%.?%d*)%s*[BbpmBPM]+") or string.match(name, "^%d+%.?%d*$")
-        
-        if num and den then
-          local t = tempo and tonumber(tempo) or 0
-          reaper.SetTempoTimeSigMarker(0, -1, proj_time, -1, -1, t, tonumber(num), tonumber(den), false)
-        elseif tempo then
-          reaper.SetTempoTimeSigMarker(0, -1, proj_time, -1, -1, tonumber(tempo), 0, 0, false)
-        else
-          reaper.AddProjectMarker2(0, isrgn, proj_time, 0, name, -1, color)
-        end
-        processed_anything = true
-      end
-    end
-  else
-    -- Fallback para REAPER 6.x ou mais antigos
-    local selected_items = {}
-    for i = 0, reaper.CountSelectedMediaItems(0) - 1 do
-      selected_items[i+1] = reaper.GetSelectedMediaItem(0, i)
-    end
-    
-    reaper.SelectAllMediaItems(0, false)
-    reaper.SetMediaItemSelected(item, true)
-    
-    -- Executa a ação 40692: Item: Import item media cues as project markers
-    reaper.Main_OnCommand(40692, 0)
-    
-    reaper.SelectAllMediaItems(0, false)
-    for _, sel_item in ipairs(selected_items) do
-      if reaper.ValidatePtr(sel_item, "MediaItem*") then
-        reaper.SetMediaItemSelected(sel_item, true)
-      end
-    end
-    
-    -- Agora iteramos pelos marcadores de projeto recém criados para converte-los
-    local rv, num_markers, num_regions = reaper.CountProjectMarkers(0)
-    for i = num_markers + num_regions - 1, 0, -1 do
-      local ret, isrgn, pos, rgnend, name, markrgnindexnumber = reaper.EnumProjectMarkers(i)
-      if ret and not isrgn then
-        local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
-        if pos >= item_pos - 0.05 and pos <= item_pos + item_len + 0.05 then
-          local num, den = string.match(name, "(%d+)/(%d+)")
-          local tempo = string.match(name, "[Tt]empo:?%s*(%d+%.?%d*)") or string.match(name, "(%d+%.?%d*)%s*[BbpmBPM]+") or string.match(name, "^%d+%.?%d*$")
-          
-          if num and den then
-            local t = tempo and tonumber(tempo) or 0
-            reaper.SetTempoTimeSigMarker(0, -1, pos, -1, -1, t, tonumber(num), tonumber(den), false)
-            reaper.DeleteProjectMarker(0, markrgnindexnumber, false)
-            processed_anything = true
-          elseif tempo then
-            reaper.SetTempoTimeSigMarker(0, -1, pos, -1, -1, tonumber(tempo), 0, 0, false)
-            reaper.DeleteProjectMarker(0, markrgnindexnumber, false)
-            processed_anything = true
-          end
-        end
-      end
-    end
-  end
-  
-  if processed_anything then
-    reaper.UpdateTimeline()
-    return true
-  end
-  
-  return false
-end
-
 local segment_seconds = 8
 local workers = 5
 local color_prompt = ""
 local script_running = true
 local inputs
-local backend_ready = false
 
 
 local function start_analysis()
   track_info = {} -- Reseta o estado para evitar acúmulo de dados entre execuções
-  backend_ready = false
   if current_theme ~= "custom" then
     write_theme_to_ini(current_theme)
   end
@@ -1507,11 +1397,12 @@ local function start_analysis()
 
     if create_folders then
       log("› grouping tracks into instrument folders...")
-      -- Contar faixas por categoria
-      local cat_counts = {}
+      
+      -- Contagem de faixas por categoria para criar pastas apenas se houver mais de 1 instrumento
+      local category_counts = {}
       for tr, cat in pairs(track_categories) do
         if cat and cat ~= "" then
-          cat_counts[cat] = (cat_counts[cat] or 0) + 1
+          category_counts[cat] = (category_counts[cat] or 0) + 1
         end
       end
 
@@ -1519,9 +1410,10 @@ local function start_analysis()
       local current_folder = ""
       while i < reaper.CountTracks(0) do
         local tr = reaper.GetTrack(0, i)
-        local cat = track_categories[tr]
-        if cat and cat ~= "" and cat ~= current_folder and cat ~= "pastas" and cat ~= "efeitos" and cat ~= "outro" then
-          -- A categoria mudou. Se estávamos em uma pasta, precisamos fechá-la.
+        local cat = track_categories[tr] or ""
+        
+        if cat ~= current_folder then
+          -- Se estava em uma pasta, fecha
           if current_folder ~= "" then
             if i > 0 then
               local last_tr = reaper.GetTrack(0, i - 1)
@@ -1530,9 +1422,9 @@ local function start_analysis()
             end
             current_folder = ""
           end
-
-          -- Se a nova categoria tem mais de 1 faixa, criamos a pasta
-          if cat_counts[cat] and cat_counts[cat] > 1 then
+          
+          -- Cria nova pasta apenas se a categoria tiver mais de 1 faixa
+          if cat ~= "" and cat ~= "pastas" and cat ~= "efeitos" and cat ~= "outro" and (category_counts[cat] or 0) > 1 then
             reaper.InsertTrackAtIndex(i, true)
             local folder_tr = reaper.GetTrack(0, i)
             local folder_name = cat:upper()
@@ -1549,6 +1441,7 @@ local function start_analysis()
         end
         i = i + 1
       end
+      
       local final_total = reaper.CountTracks(0)
       if final_total > 0 and current_folder ~= "" then
         local last_tr = reaper.GetTrack(0, final_total - 1)
@@ -1561,18 +1454,6 @@ local function start_analysis()
       log(string.format("› deleting %d silent tracks...", #tracks_to_delete))
       for _, tr in ipairs(tracks_to_delete) do
         reaper.DeleteTrack(tr)
-      end
-    end
-
-    if import_cues then
-      log("› importing media cues/tempo...")
-      for idx, info in pairs(track_info) do
-        if info.audio then
-          log(string.format("  + importing cues/tempo from first item in: %s", info.name))
-          if import_track_media_cues(info.track) then
-            break -- Somente precisamos de uma faixa para extrair o tempo/cues do projeto!
-          end
-        end
       end
     end
 
@@ -1691,27 +1572,25 @@ local layout = {
   create_folders = { x = 30, y = 185, w = 125, h = 20, cb_x = 30, cb_y = 190, cb_size = 18 },
   delete_silent = { x = 165, y = 185, w = 125, h = 20, cb_x = 165, cb_y = 190, cb_size = 18 },
   
-  import_cues = { x = 30, y = 210, w = 260, h = 20, cb_x = 30, cb_y = 215, cb_size = 18 },
-  
   -- Rádios do modo de análise (lado a lado, deslocados)
-  mode_detailed = { x = 30, y = 265, w = 125, h = 20, cb_x = 30, cb_y = 270, cb_size = 18 },
-  mode_fast = { x = 165, y = 265, w = 125, h = 20, cb_x = 165, cb_y = 270, cb_size = 18 },
+  mode_detailed = { x = 30, y = 240, w = 125, h = 20, cb_x = 30, cb_y = 245, cb_size = 18 },
+  mode_fast = { x = 165, y = 240, w = 125, h = 20, cb_x = 165, cb_y = 245, cb_size = 18 },
   
   -- Rádios do backend de análise (deslocados)
-  backend_label_y = 320,
-  backend_start_y = 342,
+  backend_label_y = 295,
+  backend_start_y = 317,
   backend_spacing_y = 25,
   backend_cb_x = 30,
   backend_cb_size = 18,
   
   -- Theme Selector (deslocado)
-  theme_selector = { x = 30, y = 540, w = 260, h = 30 },
+  theme_selector = { x = 30, y = 515, w = 260, h = 30 },
   
   -- Outros Botões (deslocados)
   toggle_view = { x = 160, y = 105, w = 55, h = 24 },
   copy_logs = { x = 220, y = 105, w = 70, h = 24 },
-  analyze = { x = 30, y = 695, w = 260, h = 36 },
-  close = { x = 30, y = 615, w = 260, h = 36 }
+  analyze = { x = 30, y = 670, w = 260, h = 36 },
+  close = { x = 30, y = 645, w = 260, h = 36 }
 }
 
 -- Layout do modo compacto (painel avançado fechado): logo -> botão Analisar -> toggle -> aviso -> créditos
@@ -1782,8 +1661,8 @@ sort_tracks = (saved_sort_tracks == "true")
 analysis_mode = "detailed"
 inputs = {
   { label = t("thread_label"), val = saved_panns_workers, placeholder = "1-20", is_numeric = true, limit = 2, x = -1000, y = -1000, w = 1, h = 1 },
-  { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 620, w = 260, h = 30 },
-  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 30, y = 470, w = 260, h = 30 }
+  { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 595, w = 260, h = 30 },
+  { label = t("local_thread_label"), val = saved_panns_threads, placeholder = "1-16", is_numeric = true, limit = 2, x = 30, y = 445, w = 260, h = 30 }
 }
 
 local function refresh_language_labels()
@@ -1978,18 +1857,6 @@ end
 
 parse_log_progress = function(text)
   for line in text:gmatch("[^\n]+") do
-    local lower_line = line:lower()
-    if lower_line:find("using cpu", 1, true)
-       or lower_line:find("using gpu", 1, true)
-       or lower_line:find("using directml", 1, true)
-       or lower_line:find("using cuda", 1, true)
-       or lower_line:find("carregado", 1, true)
-       or lower_line:find("[batch_rename] backend", 1, true)
-       or lower_line:find("✔ trk", 1, true)
-       or lower_line:find("✖ trk", 1, true)
-    then
-      backend_ready = true
-    end
     if line:find("✔ trk", 1, true) then
       local trk_idx_str = line:match("✔ trk (%d+)")
       if trk_idx_str then
@@ -2108,13 +1975,13 @@ local function draw_visualizer(box_x, box_y, box_w, box_h)
       r, g, b = 0.8, 0.2, 0.2
     elseif info.status == "pending" then
       r, g, b = 0.28, 0.28, 0.28
-      local pending_count_before = 0
+      local is_active = true
       for prev_idx = 1, i - 1 do
         if display_tracks[prev_idx].status == "pending" then
-          pending_count_before = pending_count_before + 1
+          is_active = false
+          break
         end
       end
-      local is_active = backend_ready and (pending_count_before < (workers or 1))
       if is_active then
         is_analyzing = true
         local pulse = 0.35 + 0.15 * math.sin(reaper.time_precise() * 6)
@@ -2337,29 +2204,14 @@ local function draw_gui()
       gfx.x, gfx.y = opt_d.cb_x + 28, opt_d.cb_y + 1
       gfx.drawstr(t("delete_silent"))
       
-      -- Checkbox "Passar marcadores"
-      local opt_c = layout.import_cues
-      if in_rect(opt_c.x, opt_c.y, opt_c.w, opt_c.h) then tooltip_to_draw = t("tip_import_cues") end
-      gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
-      gfx.rect(opt_c.cb_x, opt_c.cb_y, opt_c.cb_size, opt_c.cb_size, 1) -- fill
-      gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
-      gfx.rect(opt_c.cb_x, opt_c.cb_y, opt_c.cb_size, opt_c.cb_size, 0) -- border
-      if import_cues then
-        gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
-        gfx.rect(opt_c.cb_x + 3, opt_c.cb_y + 3, opt_c.cb_size - 6, opt_c.cb_size - 6, 1)
-      end
-      gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
-      gfx.x, gfx.y = opt_c.cb_x + 28, opt_c.cb_y + 1
-      gfx.drawstr(t("import_cues"))
-      
       -- Linha divisória
       gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-      gfx.line(30, 240, 290, 240)
+      gfx.line(30, 215, 290, 215)
 
       -- Modo de Análise Label
       gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
       gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
-      gfx.x, gfx.y = 30, 250
+      gfx.x, gfx.y = 30, 225
       gfx.drawstr(t("analysis_mode"))
       gfx.setfont(1, "Segoe UI", 11)
 
@@ -2395,7 +2247,7 @@ local function draw_gui()
 
       -- Linha divisória
       gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-      gfx.line(30, 295, 290, 295)
+      gfx.line(30, 270, 290, 270)
 
       -- Backend de Análise Label
       gfx.setfont(1, "Segoe UI", 11, 98) -- Bold
@@ -2425,10 +2277,10 @@ local function draw_gui()
 
       -- Linha divisória
       gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-      gfx.line(30, 445, 290, 445)
+      gfx.line(30, 420, 290, 420)
 
       -- Linha divisória após as threads
-      gfx.line(30, 510, 290, 510)
+      gfx.line(30, 485, 290, 485)
 
       -- Theme Selector Label
       gfx.setfont(1, "Segoe UI", 10)
@@ -2460,7 +2312,7 @@ local function draw_gui()
 
       -- Linha divisória após o Theme
       gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
-      gfx.line(30, 585, 290, 585)
+      gfx.line(30, 560, 290, 560)
 
       -- Campos de Texto
       for i, inp in ipairs(inputs) do
@@ -2548,8 +2400,8 @@ local function draw_gui()
     -- Info de resumo econômico/faixas dinâmico
     local n_jobs, n_skipped = update_analysis_summary_cached()
     gfx.setfont(1, "Segoe UI", 11)
-    local summary_y1 = show_advanced and 660 or 150
-    local summary_y2 = show_advanced and 672 or 162
+    local summary_y1 = show_advanced and 635 or 150
+    local summary_y2 = show_advanced and 647 or 162
     if n_jobs == 0 then
       gfx.r, gfx.g, gfx.b = 0.8, 0.6, 0.2 -- Amarelo/Dourado suave
       gfx.x, gfx.y = 30, summary_y1
@@ -2587,8 +2439,8 @@ local function draw_gui()
     local note2 = t("experimental_notice_2")
     local note1_w = gfx.measurestr(note1)
     local note2_w = gfx.measurestr(note2)
-    local note_y1 = show_advanced and 745 or COMPACT_NOTE_Y1
-    local note_y2 = show_advanced and 756 or COMPACT_NOTE_Y2
+    local note_y1 = show_advanced and 720 or COMPACT_NOTE_Y1
+    local note_y2 = show_advanced and 731 or COMPACT_NOTE_Y2
     gfx.x = (gfx.w - note1_w) / 2
     gfx.y = note_y1
     gfx.drawstr(note1)
@@ -2601,7 +2453,7 @@ local function draw_gui()
     local credit_text = "by jasko"
     local cr_w, cr_h = gfx.measurestr(credit_text)
     local cr_x = (gfx.w - cr_w) / 2
-    local cr_y = show_advanced and 795 or COMPACT_CREDITS_Y
+    local cr_y = show_advanced and 745 or COMPACT_CREDITS_Y
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.x = cr_x
     gfx.y = cr_y
@@ -2630,17 +2482,12 @@ local function draw_gui()
     gfx.setfont(1, "Segoe UI", 12)
     gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
     gfx.x, gfx.y = 30, 110
-    if not backend_ready then
-      gfx.drawstr(t("lbl_preparing_model"))
-      local dot_count = math.floor(reaper.time_precise() * 2) % 4
-      local dots = string.rep(".", dot_count)
-      gfx.drawstr(dots)
-    else
-      gfx.drawstr(t("lbl_analyzing"))
-      local dot_count = math.floor(reaper.time_precise() * 2) % 4
-      local dots = string.rep(".", dot_count)
-      gfx.drawstr(dots)
-    end
+    gfx.drawstr(t("lbl_analyzing"))
+
+    -- Animacao simples
+    local dot_count = math.floor(reaper.time_precise() * 2) % 4
+    local dots = string.rep(".", dot_count)
+    gfx.drawstr(dots)
 
     -- Caixa de Logs
     local box_x, box_y, box_w, box_h = 30, 135, 260, 460
@@ -2775,7 +2622,7 @@ local function update_gui()
         reaper.SetExtState("AiNOMEATOR", "show_advanced", show_advanced and "true" or "false", true)
         
         -- Redimensionar a janela
-        local expected_h = show_advanced and 820 or COMPACT_WINDOW_H
+        local expected_h = show_advanced and 795 or COMPACT_WINDOW_H
         resize_window(expected_h)
         return "redraw"
       end
@@ -2807,13 +2654,6 @@ local function update_gui()
         if in_rect(opt_d.x, opt_d.y, opt_d.w, opt_d.h) then
           delete_silent = not delete_silent
           reaper.SetExtState("AiNOMEATOR", "delete_silent", delete_silent and "true" or "false", true)
-          return "redraw"
-        end
-
-        local opt_c = layout.import_cues
-        if in_rect(opt_c.x, opt_c.y, opt_c.w, opt_c.h) then
-          import_cues = not import_cues
-          reaper.SetExtState("AiNOMEATOR", "import_cues", import_cues and "true" or "false", true)
           return "redraw"
         end
 
@@ -2898,7 +2738,7 @@ local function update_gui()
       gfx.setfont(1, "Segoe UI", 10)
       local cr_w, cr_h = gfx.measurestr("by jasko")
       local cr_x = (gfx.w - cr_w) / 2
-      local cr_y = show_advanced and 795 or COMPACT_CREDITS_Y
+      local cr_y = show_advanced and 745 or COMPACT_CREDITS_Y
       if in_rect(cr_x, cr_y, cr_w, cr_h) then
         open_url("https://jasko.dev")
         return "redraw"
@@ -2936,7 +2776,7 @@ local function update_gui()
             end
           end
           gui_state = "config"
-          local expected_h = show_advanced and 820 or 300
+          local expected_h = show_advanced and 795 or 300
           resize_window(expected_h)
           return "redraw"
         end
@@ -3021,12 +2861,12 @@ local function run_gui_loop()
   -- Ajustar layout de threads/workers baseado no backend
   if backend == "panns" then
     inputs[1].x = 30
-    inputs[1].y = 470
+    inputs[1].y = 445
     inputs[1].w = 125
     inputs[1].h = 30
 
     inputs[3].x = 165
-    inputs[3].y = 470
+    inputs[3].y = 445
     inputs[3].w = 125
     inputs[3].h = 30
   else
@@ -3037,7 +2877,7 @@ local function run_gui_loop()
     inputs[1].val = "1"
 
     inputs[3].x = 30
-    inputs[3].y = 470
+    inputs[3].y = 445
     inputs[3].w = 260
     inputs[3].h = 30
   end
@@ -3045,7 +2885,7 @@ local function run_gui_loop()
   -- Travar o resize
   local expected_h = 680
   if gui_state == "config" then
-    expected_h = show_advanced and 820 or 300
+    expected_h = show_advanced and 795 or 300
   end
   if gfx.w ~= 320 or gfx.h ~= expected_h then
     resize_window(expected_h)
@@ -3086,7 +2926,7 @@ local function run_gui_loop()
 end
 
 -- Inicializa a tela grafica customizada centralizada na tela
-local win_w, win_h = 320, show_advanced and 820 or 300
+local win_w, win_h = 320, 740
 local win_x, win_y = 150, 150 -- Fallback padrão se my_getViewport não estiver disponível
 
 if reaper.my_getViewport then
