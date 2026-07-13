@@ -36,7 +36,7 @@ import numpy as np
 import soundfile as sf
 
 
-def _read_audio(path):
+def _read_audio(path, search_start_seconds=None, search_duration_seconds=None):
     """Le o audio com soundfile. Se falhar (formato nao suportado pelo
     libsndfile instalado, ex: alguns mp3), tenta converter com ffmpeg
     (se estiver disponivel no PATH) pra um wav temporario e le de novo.
@@ -44,13 +44,24 @@ def _read_audio(path):
     
     Aplica tambem conversao para mono e peak normalization."""
     try:
-        data, sr = sf.read(path, always_2d=True)
+        info = sf.info(path)
+        sr = info.samplerate
+        start_frame = int(search_start_seconds * sr) if search_start_seconds else 0
+        frames = int(search_duration_seconds * sr) if search_duration_seconds else -1
+        data, sr = sf.read(path, start=start_frame, frames=frames, always_2d=True)
     except Exception as e_original:
         tmp_fd, tmp_wav = tempfile.mkstemp(suffix=".wav", prefix="ai_namer_conv_")
         os.close(tmp_fd)
         try:
+            cmd = ["ffmpeg", "-y"]
+            if search_start_seconds is not None:
+                cmd.extend(["-ss", str(search_start_seconds)])
+            cmd.extend(["-i", path])
+            if search_duration_seconds is not None:
+                cmd.extend(["-t", str(search_duration_seconds)])
+            cmd.extend(["-ar", "44100", tmp_wav])
             subprocess.run(
-                ["ffmpeg", "-y", "-i", path, "-ar", "44100", tmp_wav],
+                cmd,
                 check=True, capture_output=True, timeout=60,
             )
             data, sr = sf.read(tmp_wav, always_2d=True)
@@ -79,30 +90,21 @@ def extract_best_segment(audio_path, out_path, segment_seconds=8, hop_seconds=0.
     """
     Le o arquivo de audio, acha a janela de `segment_seconds` com maior
     energia media (RMS), e salva so essa janela em `out_path`.
-
-    Se `search_start_seconds`/`search_duration_seconds` forem informados,
-    a busca fica restrita a esse trecho do arquivo (por exemplo, o range
-    em que um item especifico do Reaper realmente usa a fonte), em vez de
-    vasculhar o arquivo inteiro - importante quando varias tracks apontam
-    pro mesmo arquivo-fonte mas usam pedacos diferentes dele.
-
-    Retorna (out_path, start_seconds, duration_seconds) - start/duration
-    sao relativos ao arquivo INTEIRO (nao a janela de busca), pra debug/log.
     """
-    data, samplerate = _read_audio(audio_path)
+    data, samplerate = _read_audio(audio_path, search_start_seconds, search_duration_seconds)
     total_frames = data.shape[0]
 
     window_start_frame = 0
     if search_start_seconds is not None:
-        window_start_frame = min(max(0, int(search_start_seconds * samplerate)), total_frames)
+        try:
+            info = sf.info(audio_path)
+            sr = info.samplerate
+        except Exception:
+            sr = 44100
+        window_start_frame = int(search_start_seconds * sr)
 
-    if search_duration_seconds is not None:
-        window_frames = min(int(search_duration_seconds * samplerate), total_frames - window_start_frame)
-    else:
-        window_frames = total_frames - window_start_frame
-    window_frames = max(0, window_frames)
-
-    windowed = data[window_start_frame:window_start_frame + window_frames]
+    windowed = data
+    window_frames = total_frames
 
     if segment_seconds is None or window_frames == 0:
         segment = windowed if window_frames > 0 else data
@@ -113,12 +115,9 @@ def extract_best_segment(audio_path, out_path, segment_seconds=8, hop_seconds=0.
             segment = windowed
             best_start_in_window = 0
         else:
-            mono = windowed.mean(axis=1).astype(np.float64)
+            mono = windowed[:, 0].astype(np.float64)
             hop_frames = max(1, int(hop_seconds * samplerate))
 
-            # soma de energia (quadrado) via cumsum, pra achar a janela mais "cheia"
-            # sem precisar recalcular a soma do zero pra cada posicao (rapido mesmo
-            # em arquivos de varios minutos)
             squared = mono ** 2
             cumsum = np.cumsum(np.insert(squared, 0, 0.0))
 

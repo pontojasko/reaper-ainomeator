@@ -3,8 +3,6 @@ import re
 import shutil
 import sys
 
-def log(msg):
-    print(msg)
 
 import subprocess
 
@@ -81,33 +79,33 @@ def load_colors_ini(path):
                             r, g, b = map(int, match.groups())
                             colors[key] = b * 65536 + g * 256 + r
     except Exception as e:
-        log(f"Aviso ao ler cores customizadas: {e}. Usando padrões.")
+        print(f"Aviso ao ler cores customizadas: {e}. Usando padrões.")
         
     return colors
 
 def main():
-    log("=========================================")
-    log(" AiNOMEATOR - Sincronizar SWS ")
-    log("=========================================\n")
+    print("=========================================")
+    print(" AiNOMEATOR - Sincronizar SWS ")
+    print("=========================================\n")
     
     # 1. Verifica se o REAPER está aberto
     if is_reaper_running():
-        log("❌ ERRO: O REAPER está aberto!")
-        log("Por favor, FECHE O REAPER completamente antes de prosseguir.")
-        log("Se o REAPER estiver aberto, ele irá sobrescrever a configuração ao fechar.")
+        print("❌ ERRO: O REAPER está aberto!")
+        print("Por favor, FECHE O REAPER completamente antes de prosseguir.")
+        print("Se o REAPER estiver aberto, ele irá sobrescrever a configuração ao fechar.")
         input("\nPressione Enter para fechar...")
         sys.exit(1)
         
     # 2. Localiza a pasta de recursos do REAPER (%APPDATA%\REAPER)
     appdata = os.getenv('APPDATA')
     if not appdata:
-        log("❌ ERRO: Não foi possível obter o caminho %APPDATA% no seu sistema.")
+        print("❌ ERRO: Não foi possível obter o caminho %APPDATA% no seu sistema.")
         input("\nPressione Enter para fechar...")
         sys.exit(1)
         
     reaper_resource_dir = os.path.join(appdata, 'REAPER')
     if not os.path.exists(reaper_resource_dir):
-        log(f"❌ ERRO: A pasta de recursos do REAPER não foi encontrada em: {reaper_resource_dir}")
+        print(f"❌ ERRO: A pasta de recursos do REAPER não foi encontrada em: {reaper_resource_dir}")
         input("\nPressione Enter para fechar...")
         sys.exit(1)
         
@@ -203,7 +201,7 @@ def main():
     autoregion_enable = "0"
     
     if os.path.exists(sws_ini_path):
-        log(f"Encontrado arquivo SWS antigo. Fazendo backup para: {sws_ini_backup}")
+        print(f"Encontrado arquivo SWS antigo. Fazendo backup para: {sws_ini_backup}")
         shutil.copy2(sws_ini_path, sws_ini_backup)
         
         try:
@@ -224,7 +222,7 @@ def main():
                         elif key.startswith("AutoColor "):
                             existing_rules.append(val)
         except Exception as e:
-            log(f"Aviso ao ler regras SWS antigas: {e}. Prosseguindo sem importá-las.")
+            print(f"Aviso ao ler regras SWS antigas: {e}. Prosseguindo sem importá-las.")
 
     # 6. Mescla as regras da IA (topo/prioridade máxima) com as regras antigas do usuário
     final_rules = []
@@ -269,13 +267,13 @@ def main():
             for idx, rule in enumerate(final_rules, start=1):
                 f_out.write(f"AutoColor {idx}={rule}\n")
                 
-        log("\n✅ SUCESSO! Configurações do SWS Auto Color aplicadas diretamente!")
-        log(f"Salvo em: {sws_ini_path}")
-        log("\nAgora você já pode abrir o REAPER.")
-        log("Sempre que você renomear uma track para 'vocal', 'baixo', 'violao', etc.,")
-        log("as cores e os ícones serão alterados automaticamente em tempo real.")
+        print("\n✅ SUCESSO! Configurações do SWS Auto Color aplicadas diretamente!")
+        print(f"Salvo em: {sws_ini_path}")
+        print("\nAgora você já pode abrir o REAPER.")
+        print("Sempre que você renomear uma track para 'vocal', 'baixo', 'violao', etc.,")
+        print("as cores e os ícones serão alterados automaticamente em tempo real.")
     except Exception as e:
-        log(f"\n❌ ERRO ao salvar as configurações: {e}")
+        print(f"\n❌ ERRO ao salvar as configurações: {e}")
         
     input("\nPressione Enter para fechar...")
 

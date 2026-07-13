@@ -35,7 +35,6 @@ local is_windows = os_name:find("Win") ~= nil
 local sep = is_windows and "\\" or "/"
 local ui_font = is_windows and "Segoe UI" or "Arial"
 
-local env_path = script_dir .. ".env"
 local config_path = script_dir .. "colors.ini"
 
 local lang = reaper.GetExtState("AiNOMEATOR", "language")
@@ -52,6 +51,22 @@ if backend == "" then backend = "gemini" end
 
 local saved_sort_tracks = reaper.GetExtState("AiNOMEATOR", "sort_tracks")
 if saved_sort_tracks == "" then saved_sort_tracks = "false" end
+local sort_tracks = (saved_sort_tracks == "true")
+local analysis_mode = "detailed"
+
+local COLORS = {
+  brand = 0x3B6E8C,
+  input_bg = 0x1E1E1E,
+  border = 0x2D2D2D,
+  text = 0xCCCCCC,
+  label = 0x999999
+}
+
+local KEYS_ORDER = {
+  "vocal_principal", "backing_vocals", "bateria", "percussao", "baixo",
+  "guitarra_eletrica", "violao", "teclado", "synth", "cordas", "sopros",
+  "efeitos", "pastas", "outro"
+}
 
 local current_theme = reaper.GetExtState("AiNOMEATOR", "theme")
 if current_theme == "" then current_theme = "default" end
@@ -313,12 +328,7 @@ local function write_theme_to_ini(theme_name)
   if f then
     f:write("# Paleta de Cores " .. theme_name:upper() .. " para o AiNOMEATOR\n")
     f:write("[Cores]\n")
-    local keys_order = {
-      "vocal_principal", "backing_vocals", "bateria", "percussao", "baixo",
-      "guitarra_eletrica", "violao", "teclado", "synth", "cordas", "sopros",
-      "efeitos", "pastas", "outro"
-    }
-    for _, k in ipairs(keys_order) do
+    for _, k in ipairs(KEYS_ORDER) do
       local v = t_colors[k]
       if v then
         f:write(string.format("%s = #%02X%02X%02X\n", k, v[1], v[2], v[3]))
@@ -739,6 +749,25 @@ local function sort_project_tracks(track_categories, track_instruments)
     end
   end
 
+  
+  local FALLBACK_ORDER = {
+    violao = 1,
+    guitarra = 2,
+    teclado = 3,
+    synth = 4,
+    cordas = 5,
+    sopros = 6,
+    sopro = 6,
+    baixo = 7,
+    bateria = 8,
+    percussao = 9,
+    efeitos = 10,
+    outro = 11,
+    pastas = 12,
+    vocal = 13,
+    voz = 13
+  }
+
   -- build the list of track objects to sort
   local list = {}
   for i = 0, total_tracks - 1 do
@@ -782,6 +811,7 @@ local function sort_project_tracks(track_categories, track_instruments)
       guid = guid,
       weight = base_weight,
       track_earliest = track_sound_starts[tr],
+      fallback_order = FALLBACK_ORDER[category] or 99,
       category = category,
       instrument = instrument:lower(),
       name = tr_name:lower(),
@@ -797,6 +827,10 @@ local function sort_project_tracks(track_categories, track_instruments)
     -- same category weight, sort by individual track start time
     if a.track_earliest ~= b.track_earliest then
       return a.track_earliest < b.track_earliest
+    end
+    -- TIE BREAKER: Fallback order (replaces alphabetical chaos)
+    if a.fallback_order ~= b.fallback_order then
+      return a.fallback_order < b.fallback_order
     end
     -- within same category and start time, group core guitars/violões together
     if a.category == b.category and (a.category == "guitarra" or a.category == "violao" or a.category == "violão") then
@@ -856,7 +890,7 @@ end
 -- 1) opcoes do usuario
 ------------------------------------------------------------------
 
-local config_colors, created_new = load_config(config_path)
+local config_colors = load_config(config_path)
 
 local only_selected = false
 local segment_seconds = 8
@@ -1244,12 +1278,7 @@ local function start_analysis()
       outro           = { en = "other", pt = "outro" }
     }
 
-    local keys_order = {
-      "vocal_principal", "backing_vocals", "bateria", "percussao", "baixo",
-      "guitarra_eletrica", "violao", "teclado", "synth", "cordas", "sopros",
-      "efeitos", "pastas", "outro"
-    }
-    for _, col_key in ipairs(keys_order) do
+    for _, col_key in ipairs(KEYS_ORDER) do
       local indices = color_groups[col_key]
       if indices and #indices > 0 then
         local rgb = color_rgb[col_key]

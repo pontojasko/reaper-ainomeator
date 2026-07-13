@@ -24,11 +24,11 @@ import argparse
 import time
 import tempfile
 
-from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
 from audio_utils import extract_best_segment, downmix_resample
+from config import load_env, get_fallback_models, TRANSIENT_ERRORS
 
 # Categorias permitidas — vocabulário fechado
 CATEGORIAS_VALIDAS = [
@@ -36,33 +36,7 @@ CATEGORIAS_VALIDAS = [
     "teclado", "synth", "sopro", "cordas", "outro"
 ]
 
-# Ordem de preferencia: tenta o primeiro, se sobrecarregado (503)
-# cai pro proximo. Cada modelo roda em cluster separado no Google.
-#
-# gemini-3.5-flash em primeiro: percepção mais aguçada pra nuances
-# musicais. A diferença de latência pro flash-lite é pequena e compensa
-# pela redução de erros em trechos ambíguos.
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PARENT_ENV = os.path.join(os.path.dirname(_SCRIPT_DIR), ".env")
-
-
-def _load_env_once():
-    """Carrega o .env uma única vez (idempotente via load_dotenv)."""
-    load_dotenv()
-    if os.path.exists(_PARENT_ENV):
-        load_dotenv(_PARENT_ENV)
-
-
-def _get_fallback_models():
-    """Retorna a lista de modelos, lendo GEMINI_MODELS do env se disponível."""
-    _load_env_once()
-    model_env = os.environ.get("GEMINI_MODELS")
-    if model_env:
-        return [m.strip() for m in model_env.split(",") if m.strip()]
-    return ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-2.5-flash"]
-
-
-MODELOS_FALLBACK = _get_fallback_models()
+MODELOS_FALLBACK = get_fallback_models()
 
 DEFAULT_PROMPT_PT = """Voce e um assistente de organizacao de faixas de audio dentro de uma DAW (estacao de audio digital).
 
@@ -259,25 +233,6 @@ def classify_track(client, audio_path, models=None, segment_seconds=8, keep_temp
     return result
 
 
-def classify_audio(client, audio_path, models=None, retries_per_model=2, on_model_failed=None,
-                   output_language="pt"):
-    """Le um arquivo de audio do disco e manda pro Gemini (via bytes inline).
-
-    Mantido por compatibilidade com test_batch.py / uso direto. Nao faz
-    corte de trecho nem downsample - se o arquivo for grande, prefira
-    `classify_track`, que ja cuida disso.
-    """
-    if not os.path.isfile(audio_path):
-        return {"error": f"arquivo nao encontrado: {audio_path}"}
-
-    with open(audio_path, "rb") as f:
-        audio_bytes = f.read()
-
-    mime = "audio/wav" if audio_path.lower().endswith(".wav") else "audio/mpeg"
-    return classify_audio_bytes(client, audio_bytes, mime_type=mime, models=models,
-                                 retries_per_model=retries_per_model, on_model_failed=on_model_failed,
-                                 output_language=output_language)
-
 
 def classify_audio_bytes(client, audio_bytes, mime_type="audio/wav", models=None,
                          retries_per_model=2, on_model_failed=None, output_language="pt",
@@ -303,8 +258,6 @@ def classify_audio_bytes(client, audio_bytes, mime_type="audio/wav", models=None
     if models is None:
         models = MODELOS_FALLBACK
 
-    ERROS_TRANSITORIOS = ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DeadlineExceeded", "timeout")
-
     erros_por_modelo = {}
 
     prompt_to_use = custom_prompt if custom_prompt is not None else load_prompt(output_language)
@@ -322,6 +275,8 @@ def classify_audio_bytes(client, audio_bytes, mime_type="audio/wav", models=None
                     ),
                 )
 
+                if not response.text:
+                    raise ValueError("resposta vazia ou filtrada pelo modelo")
                 raw_text = response.text.strip()
                 result = json.loads(raw_text)
 
@@ -341,7 +296,7 @@ def classify_audio_bytes(client, audio_bytes, mime_type="audio/wav", models=None
                 erro_str = f"{type(e).__name__}: {e}"
                 erros_por_modelo[model] = erro_str[:150]
 
-                eh_transitorio = any(marcador in erro_str for marcador in ERROS_TRANSITORIOS)
+                eh_transitorio = any(marcador in erro_str for marcador in TRANSIENT_ERRORS)
                 if not eh_transitorio:
                     # erro permanente (chave invalida, modelo nao existe) -> pula direto pro proximo modelo e bane globalmente
                     if on_model_failed:
@@ -384,9 +339,7 @@ def main():
 
     models = args.models.split(",") if args.models else None
 
-    load_dotenv()
-    if os.path.exists(_PARENT_ENV):
-        load_dotenv(_PARENT_ENV)
+    load_env()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("ERRO: variavel GEMINI_API_KEY nao encontrada.")
@@ -398,7 +351,12 @@ def main():
 
     if args.full:
         print(f"Analisando (arquivo inteiro): {args.audio_path}")
-        result = classify_audio(client, args.audio_path, models=models, output_language=args.output_language)
+        # Lê o arquivo inteiro sem corte de segmento
+        with open(args.audio_path, "rb") as _f:
+            _bytes = _f.read()
+        _mime = "audio/wav" if args.audio_path.lower().endswith(".wav") else "audio/mpeg"
+        result = classify_audio_bytes(client, _bytes, mime_type=_mime, models=models,
+                                       output_language=args.output_language)
     else:
         print(f"Analisando (trecho de {args.segment_seconds:.0f}s de maior energia): {args.audio_path}")
         result = classify_track(

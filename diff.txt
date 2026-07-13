@@ -1,0 +1,488 @@
+AiNOMEATOR.lua | 1512 +++++++++++++++++++++++---------------------------------
+ 1 file changed, 613 insertions(+), 899 deletions(-)
+
+Changes:
+
+AiNOMEATOR.lua
+  @@ -35,9 +35,23 @@ local is_windows = os_name:find("Win") ~= nil
+  -local env_path = script_dir .. ".env"
+   local config_path = script_dir .. "colors.ini"
+   
+  +local COLORS = {
+  +  brand = 0x3B6E8C,
+  +  input_bg = 0x1E1E1E,
+  +  border = 0x2D2D2D,
+  +  text = 0xCCCCCC,
+  +  label = 0x999999
+  +}
+  +
+  +local KEYS_ORDER = {
+  +  "vocal_principal", "backing_vocals", "bateria", "percussao", "baixo",
+  +  "guitarra_eletrica", "violao", "teclado", "synth", "cordas", "sopros",
+  +  "efeitos", "pastas", "outro"
+  +}
+  +
+  +
+   local lang = reaper.GetExtState("AiNOMEATOR", "language")
+   if lang == "" then lang = "en" end -- default to English
+   
+  @@ -52,6 +66,8 @@ if backend == "" then backend = "gemini" end
+  +local sort_tracks = (saved_sort_tracks == "true")
+  +local analysis_mode = "detailed"
+   
+   local current_theme = reaper.GetExtState("AiNOMEATOR", "theme")
+   if current_theme == "" then current_theme = "default" end
+  @@ -313,12 +329,7 @@ local function write_theme_to_ini(theme_name)
+  -    local keys_order = {
+  -      "vocal_principal", "backing_vocals", "bateria", "percussao", "baixo",
+  -      "guitarra_eletrica", "violao", "teclado", "synth", "cordas", "sopros",
+  -      "efeitos", "pastas", "outro"
+  -    }
+  -    for _, k in ipairs(keys_order) do
+  +    for _, k in ipairs(KEYS_ORDER) do
+         local v = t_colors[k]
+         if v then
+           f:write(string.format("%s = #%02X%02X%02X\n", k, v[1], v[2], v[3]))
+  @@ -856,7 +867,7 @@ end
+  -local config_colors, created_new = load_config(config_path)
+  +local config_colors = load_config(config_path)
+   
+   local only_selected = false
+   local segment_seconds = 8
+  @@ -865,44 +876,121 @@ local color_prompt = ""
+  +-- =========================================================================
+  +-- HELPERS DE DESENHO — extraídos de draw_gui() para eliminar duplicação
+  +-- =========================================================================
+  +
+  +--- Desenha uma checkbox quadrada com label à direita.
+  +-- @param layout_opt  tabela com cb_x, cb_y, cb_size; x,y,w,h para hover
+  +-- @param checked     boolean
+  +-- @param label       string
+  +-- @param tip_key     chave i18n para tooltip (nil = sem tooltip)
+  +local function _draw_checkbox(layout_opt, checked, label, tip_key)
+  +  local tip = nil
+  +  if tip_key and in_rect(layout_opt.x, layout_opt.y, layout_opt.w, layout_opt.h) then
+  +    tip = t(tip_key)
+  +  end
+  +  gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+  +  gfx.rect(layout_opt.cb_x, layout_opt.cb_y, layout_opt.cb_size, layout_opt.cb_size, 1)
+  +  gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+  +  gfx.rect(layout_opt.cb_x, layout_opt.cb_y, layout_opt.cb_size, layout_opt.cb_size, 0)
+  +  if checked then
+  +    gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+  +    gfx.rect(layout_opt.cb_x + 3, layout_opt.cb_y + 3, layout_opt.cb_size - 6, layout_opt.cb_size - 6, 1)
+  +  end
+  +  gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
+  +  gfx.x, gfx.y = layout_opt.cb_x + 28, layout_opt.cb_y + 1
+  +  gfx.drawstr(label)
+  +  return tip
+  +end
+   
+  -local function start_analysis()
+  -  track_info = {} -- Reseta o estado para evitar acúmulo de dados entre execuções
+  -  if current_theme ~= "custom" then
+  -    write_theme_to_ini(current_theme)
+  +--- Desenha um radio button quadrado com label à direita.
+  +-- @param layout_opt  tabela com cb_x, cb_y, cb_size; x,y,w,h para hover
+  +-- @param selected    boolean (está selecionado?)
+  +-- @param label       string
+  +-- @param tip_key     chave i18n para tooltip (nil = sem tooltip)
+  +local function _draw_radio(layout_opt, selected, label, tip_key)
+  +  local tip = nil
+  +  if tip_key and in_rect(layout_opt.x, layout_opt.y, layout_opt.w, layout_opt.h) then
+  +    tip = t(tip_key)
+  +  end
+  +  gfx.r, gfx.g, gfx.b = 0.17, 0.17, 0.17
+  +  gfx.rect(layout_opt.cb_x, layout_opt.cb_y, layout_opt.cb_size, layout_opt.cb_size, 1)
+  +  gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+  +  gfx.rect(layout_opt.cb_x, layout_opt.cb_y, layout_opt.cb_size, layout_opt.cb_size, 0)
+  +  if selected then
+  +    gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+  +    gfx.rect(layout_opt.cb_x + 3, layout_opt.cb_y + 3, layout_opt.cb_size - 6, layout_opt.cb_size - 6, 1)
+     end
+  -  local config_colors_file = config_path
+  -  if current_theme == "custom" and color_prompt ~= "" then
+  -    config_colors_file = script_dir .. "colors_prompt.ini"
+  +  gfx.r, gfx.g, gfx.b = 0.85, 0.85, 0.85
+  +  gfx.x, gfx.y = layout_opt.cb_x + 28, layout_opt.cb_y + 1
+  +  gfx.drawstr(label)
+  +  return tip
+  +end
+  +
+  +--- Desenha um botão retangular com texto centralizado.
+  +-- @return true se mouse está sobre o botão
+  +local function _draw_button(bx, by, bw, bh, label, r, g, b, r_hover, g_hover, b_hover)
+  +  local hovered = in_rect(bx, by, bw, bh)
+  +  if hovered then
+  +    gfx.r, gfx.g, gfx.b = r_hover, g_hover, b_hover
+  +  else
+  +    gfx.r, gfx.g, gfx.b = r, g, b
+     end
+  +  gfx.rect(bx, by, bw, bh, 1)
+  +  gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
+  +  gfx.setfont(1, ui_font, 12)
+  +  local tw, th = gfx.measurestr(label)
+  +  gfx.x = bx + (bw - tw) / 2
+  +  gfx.y = by + (bh - th) / 2
+  +  gfx.drawstr(label)
+  +  return hovered
+  +end
+  +
+  +--- Desenha a caixa de logs + toggle + botão de copiar (reutilizado em analyzing e completed)
+  +local function _draw_log_box()
+  +  local box_x, box_y, box_w, box_h = 30, 135, 260, 460
+  +  gfx.r, gfx.g, gfx.b = 0.08, 0.08, 0.08
+  +  gfx.rect(box_x, box_y, box_w, box_h, 1)
+  +  gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+  +  gfx.rect(box_x, box_y, box_w, box_h, 0)
+  +  if show_text_log then
+  +    draw_logs(box_x + 10, box_y + 10, box_w - 20, box_h - 20)
+  +  else
+  +    draw_visualizer(box_x, box_y, box_w, box_h)
+  +  end
+  +  draw_copy_button()
+  +  draw_toggle_view_button()
+  +end
+  +
+  +-- =========================================================================
+  +-- start_analysis: orquestrador principal — lança o Python e inicia o polling
+  +-- =========================================================================
+   
+  +local function scan_tracks()
+     local track_count = reaper.CountTracks(0)
+  ... (8 lines truncated)
+  @@ -912,56 +1000,24 @@ local function start_analysis()
+  -        track = track,
+  -        name = name,
+  -        audio = best,
+  +        track = track, name = name, audio = best,
+           status = best and "pending" or "skipped",
+  -        color = {77, 77, 77},
+  -        category = "",
+  -        instrument = ""
+  +        color = {77, 77, 77}, category = "", instrument = ""
+         }
+   
+         if best then
+           table.insert(manifest_lines,
+             string.format("%d\t%s\t%.3f\t%.3f", i, best.filename, best.start, best.dur))
+  -      else
+  -        skipped_no_audio = skipped_no_audio + 1
+         end
+       end
+     end
+  +  
+  +  return manifest_lines
+  +end
+   
+  -  local n_jobs = #manifest_lines
+  -
+  -  if n_jobs == 0 then
+  -    reaper.MB(t("msg_no_audio"), "AiNOMEATOR", 0)
+  -    return
+  -  end
+  -
+  -
+  -
+  -  local venv_exists = false
+  -  local python_exe
+  -  if is_windows then
+  -    python_exe = script_dir .. "venv\\Scripts\\python.exe"
+  -    if file_exists(python_exe) then
+  -      venv_exists = true
+  -    else
+  -      python_exe = "python"
+  -    end
+  -  else
+  -    python_exe = script_dir .. "venv/bin/python"
+  -    if file_exists(python_exe) then
+  -      venv_exists = true
+  -    else
+  -      python_exe = "python3"
+  -    end
+  -  end
+  -
+  -  local batch_script = script_dir .. "src" .. sep .. "batch_rename.py"
+  -
+  +local function build_manifest(manifest_lines)
+     local work_dir = reaper.GetResourcePath() .. sep .. "reaper-ai-namer_tmp"
+     reaper.RecursiveCreateDirectory(work_dir, 0)
+  -
+     local stamp = tostring(math.floor(reaper.time_precise() * 1000))
+     local manifest_path = work_dir .. sep .. "manifest_" .. stamp .. ".tsv"
+     local result_path   = work_dir .. sep .. "result_"   .. stamp .. ".tsv"
+  @@ -973,413 +1029,284 @@ local function start_analysis()
+  -    return
+  -  end
+  -  for _, line in ipairs(manifest_lines) do
+  -    mf:write(line .. "\n")
+  +    return nil
+     end
+  +  for _, line in ipairs(manifest_lines) do mf:write(line .. "\n") end
+     mf:close()
+  +  
+  +  return manifest_path, result_path, log_path, done_path
+  +end
+   
+  -  local analysis_start_time = reaper.time_precise()
+  -  local function log_t(msg)
+  -    local elapsed = reaper.time_precise() - analysis_start_time
+  -    log(string.format("%s [%.2fs]", msg, elapsed))
+  +local function launch_python(manifest_path, result_path, done_path, log_path, config_colors_file, n_jobs, analysis_start_time)
+  +  local venv_exists = false
+  +  local python_exe
+  +  if is_windows then
+  +    python_exe = script_dir .. "venv\\Scripts\\python.exe"
+  +    if file_exists(python_exe) then venv_exists = true else python_exe = "python" end
+  +  else
+  +    python_exe = script_dir .. "venv/bin/python"
+  +    if file_exists(python_exe) then venv_exists = true else python_exe = "python3" end
+     end
+   
+  -  if DEBUG then
+  -    reaper.ShowConsoleMsg("")  -- garante que o console abre
+  +  local batch_script = script_dir .. "src" .. sep .. "batch_rename.py"
+  +
+  +  local function log_t(msg)
+  +    log(string.format("%s [%.2fs]", msg, reaper.time_precise() - analysis_start_time))
+     end
+  +
+  +  if DEBUG then reaper.ShowConsoleMsg("") end
+     log("╭──────────────────────────────────────────────────────────╮")
+     log("│ ainomeator by jasko                                                        │")
+     log("╰──────────────────────────────────────────────────────────╯")
+     log("")
+     log_t("[ setup ]")
+  -  if not venv_exists then
+  -    log(t("msg_venv_missing"))
+  -    log(t("msg_venv_hint"))
+  -    log("")
+  -  end
+  -  local profile_name = "colors.ini"
+  -  if current_theme == "custom" and color_prompt ~= "" then
+  -    profile_name = "colors_prompt.ini"
+  -  end
+  +  if not venv_exists then log(t("msg_venv_missing")); log(t("msg_venv_hint")); log("") end
+  +
+  +  local profile_name = (current_theme == "custom" and color_prompt ~= "") and "colors_prompt.ini" or "colors.ini"
+     log_t("› profile  : " .. profile_name)
+  -  local backend_name = backend
+  -  if backend == "panns" then
+  -    backend_name = "panns (local/cnn14)"
+  -  elseif backend == "gemini" then
+  -    backend_name = "gemini (cloud/api)"
+  -  elseif backend == "hybrid_heuristic" then
+  -    backend_name = "hybrid_heuristic (PANNs + Gemini)"
+  -  elseif backend == "hybrid_chaining" then
+  -    backend_name = "hybrid_chaining (PANNs + Gemini review)"
+  -  end
+  -  log_t("› backend  : " .. backend_name)
+  -  local device_str = "cpu (checkpoint loaded)"
+  -  if backend == "gemini" then
+  -    device_str = "cloud api"
+  -  end
+  -  log_t("› device   : " .. device_str)
+  -  local target_str = string.format("%d tracks | %d thread | %s mode", n_jobs, workers, (analysis_mode == "detailed" and "detailed" or "fast"))
+  -  log_t("› target   : " .. target_str)
+  +  local backend_display = {
+  +    panns            = "panns (local/cnn14)",
+  +    gemini           = "gemini (cloud/api)",
+  +    hybrid_heuristic = "hybrid_heuristic (PANNs + Gemini)",
+  +    hybrid_chaining  = "hybrid_chaining (PANNs + Gemini review)",
+  +  }
+  +  log_t("› backend  : " .. (backend_display[backend] or backend))
+  +  log_t("› device   : " .. (backend == "gemini" and "cloud api" or "cpu (checkpoint loaded)"))
+  +  log_t(string.format("› target   : %d tracks | %d thread | %s mode",
+  +        n_jobs, workers, (analysis_mode == "detailed" and "detailed" or "fast")))
+   
+     local local_threads = tonumber(inputs[3].val) or 1
+  -  
+  -  -- Calcula o tempo gasto ate o momento do disparo do script Python
+     local setup_offset = reaper.time_precise() - analysis_start_time
+     local python_args = string.format(
+       '-u "%s" "%s" "%s" --workers %d --segment-seconds %.2f --done-flag "%s" --config-path "%s" --panns-threads %d --start-offset %.4f',
+       batch_script, manifest_path, result_path, workers, segment_seconds, done_path, config_colors_file, local_threads, setup_offset
+     )
+  -
+  -  if analysis_mode == "detailed" then
+  -    python_args = python_args .. ' --quality alta'
+  -  else
+  -    python_args = python_args .. ' --quality normal'
+  -  end
+  -
+  -  python_args = python_args .. ' --output-language ' .. sanitize_shell_arg(lang)
+  -  python_args = python_args .. ' --backend ' .. sanitize_shell_arg(backend)
+  ... (488 lines truncated)
+  @@ -1389,8 +1316,7 @@ local function start_analysis()
+  -            new_content = new_content:gsub("\r\n", "\n"):gsub("\r", "\n")
+  -            log(new_content)
+  +            log(new_content:gsub("\r\n", "\n"):gsub("\r", "\n"))
+             end
+           end
+         end
+  @@ -1401,19 +1327,15 @@ local function start_analysis()
+  -          if tail and tail ~= "" then
+  -            log(tail:gsub("\r\n", "\n"):gsub("\r", "\n"))
+  -          end
+  +          if tail and tail ~= "" then log(tail:gsub("\r\n", "\n"):gsub("\r", "\n")) end
+           end
+  -        apply_results()
+  +        apply_results(result_path, config_colors_file)
+           gui_state = "completed"
+           return
+         end
+   
+         if reaper.time_precise() - poll_start > TIMEOUT_SEC then
+  -        local err_msg = string.format("\n[TIMEOUT] Processo nao concluiu em %ds. Verifique o log em:\n  %s",
+  -          TIMEOUT_SEC, log_path)
+  -        log(err_msg)
+  +        log(string.format("\n[TIMEOUT] Processo nao concluiu em %ds. Verifique o log em:\n  %s", TIMEOUT_SEC, log_path))
+           gui_state = "error"
+           reaper.MB(
+             string.format("Timeout: o processo demorou mais de %d segundos.\n\nVerifique o log completo em:\n%s",
+  @@ -1429,6 +1351,31 @@ local function start_analysis()
+  +local function start_analysis()
+  +  track_info = {} -- Reseta o estado para evitar acúmulo de dados entre execuções
+  +  if current_theme ~= "custom" then
+  +    write_theme_to_ini(current_theme)
+  +  end
+  +  local config_colors_file = config_path
+  +  if current_theme == "custom" and color_prompt ~= "" then
+  +    config_colors_file = script_dir .. "colors_prompt.ini"
+  +  end
+  +
+  +  local manifest_lines = scan_tracks()
+  +  if #manifest_lines == 0 then
+  +    reaper.MB(t("msg_no_audio"), "AiNOMEATOR", 0)
+  +    return
+  +  end
+  +
+  +  local manifest_path, result_path, log_path, done_path = build_manifest(manifest_lines)
+  +  if not manifest_path then return end
+  +
+  +  local analysis_start_time = reaper.time_precise()
+  +  launch_python(manifest_path, result_path, done_path, log_path, config_colors_file, #manifest_lines, analysis_start_time)
+  +  
+  +  start_poll_loop(log_path, done_path, result_path, config_colors_file, analysis_start_time)
+  +end
+  +
+   -- ==================================================================
+   -- INTERFACE GRAFICA PERSONALIZADA (GFX)
+   -- ==================================================================
+  @@ -1538,8 +1485,6 @@ local function load_logo()
+  -sort_tracks = (saved_sort_tracks == "true")
+  -analysis_mode = "detailed"
+   inputs = {
+     { label = t("thread_label"), val = saved_panns_workers, placeholder = "1-20", is_numeric = true, limit = 2, max_val = 20, x = -1000, y = -1000, w = 1, h = 1 },
+     { label = t("prompt_label"), val = "", placeholder = t("prompt_placeholder"), is_numeric = false, limit = 100, x = 30, y = 595, w = 260, h = 30 },
+  @@ -1905,531 +1850,301 @@ local last_hovered_text = nil
+  -local function draw_gui()
+  -  local tooltip_to_draw = nil
+  -  -- Fundo escuro (#1E1E1E)
+  -  gfx.r, gfx.g, gfx.b = 0.12, 0.12, 0.12
+  -  gfx.rect(0, 0, gfx.w, gfx.h, 1)
+  -
+  -  -- Modo compacto: tela "config" com painel avançado fechado
+  -  local is_compact_view = (gui_state == "config" and not show_advanced)
+  -
+  -  -- Titulo (Logo ou Fallback Text) — no compacto usa a logo em alta resolucao
+  -  -- (ainometor_biglogo.png), no mesmo tamanho visivel de sempre (target_h),
+  -  -- so que mais nitida por partir de uma imagem maior
+  -  local use_big_logo = is_compact_view and logo_big_loaded
+  -  local buf = use_big_logo and logo_big_buffer or logo_buffer
+  -  local src_w = use_big_logo and logo_big_w or logo_w
+  -  local src_h = use_big_logo and logo_big_h or logo_h
+  +local function draw_state_config(tooltip_to_draw)
+  +  local en = layout.lang_en
+  +  local pt = layout.lang_pt
+  +  if in_rect(en.x, en.y, en.w, en.h) then tooltip_to_draw = t("tip_lang_en") end
+  +  if in_rect(pt.x, pt.y, pt.w, pt.h) then tooltip_to_draw = t("tip_lang_pt") end
+   
+  -  if logo_loaded or logo_big_loaded then
+  -    local target_h = is_compact_view and 130 or 80
+  -    local target_w = (src_w / src_h) * target_h
+  -    local target_x = (gfx.w - target_w) / 2
+  -    gfx.blit(buf, 1, 0, 0, 0, src_w, src_h, target_x, 15, target_w, target_h)
+  +  gfx.setfont(1, ui_font, 10)
+  +  gfx.r, gfx.g, gfx.b = 0.78, 0.78, 0.78
+  +  gfx.x, gfx.y = en.radio_x + 12, en.radio_y - 7
+  +  gfx.drawstr("EN")
+  +  gfx.x, gfx.y = pt.radio_x + 12, pt.radio_y - 7
+  +  gfx.drawstr("PT")
+  +  gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+  +  gfx.circle(en.radio_x, en.radio_y, en.radio_r, 0, 1)
+  +  gfx.circle(pt.radio_x, pt.radio_y, pt.radio_r, 0, 1)
+  +  if lang == "en" then
+  +    gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+  +    gfx.circle(en.radio_x, en.radio_y, en.radio_r - 2, 1, 1)
+     else
+  -    gfx.setfont(1, ui_font, 18) -- Bold
+       gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+  -    gfx.x, gfx.y = 30, 30
+  -    gfx.drawstr("AiNOMEATOR")
+  +    gfx.circle(pt.radio_x, pt.radio_y, pt.radio_r - 2, 1, 1)
+     end
+   
+  -  -- Linha divisoria (oculta no modo compacto — o logo maior já ocupa esse espaço)
+  -  if not is_compact_view then
+  -    gfx.setfont(1, ui_font, 12)
+  -    gfx.r, gfx.g, gfx.b = 0.25, 0.25, 0.25
+  -    gfx.line(30, 100, 290, 100)
+  +  local toggle = {
+  +    x = layout.advanced_toggle.x,
+  +    y = show_advanced and layout.advanced_toggle.y or COMPACT_TOGGLE_Y,
+  +    w = layout.advanced_toggle.w,
+  +    h = layout.advanced_toggle.h,
+  +  }
+  +  local toggle_label = show_advanced and t("btn_hide_advanced") or t("btn_show_advanced")
+  +  if _draw_button(toggle.x, toggle.y, toggle.w, toggle.h, toggle_label, 0.17, 0.17, 0.17, 0.25, 0.25, 0.25) then
+  +    tooltip_to_draw = t("tip_btn_show_advanced")
+     end
+   
+  -  if gui_state == "config" then
+  -    -- Radio de idioma no topo
+  -    local en = layout.lang_en
+  -    local pt = layout.lang_pt
+  -    if in_rect(en.x, en.y, en.w, en.h) then tooltip_to_draw = t("tip_lang_en") end
+  -    if in_rect(pt.x, pt.y, pt.w, pt.h) then tooltip_to_draw = t("tip_lang_pt") end
+  +  if show_advanced then
+  +    gfx.setfont(1, ui_font, 11)
+  +    gfx.r, gfx.g, gfx.b = 0.65, 0.65, 0.65
+  +    gfx.x, gfx.y = 30, 140
+  +    gfx.drawstr(t("general_label"))
+  +
+  +    tooltip_to_draw = _draw_checkbox(layout.only_selected, only_selected, t("only_selected"), "tip_only_selected") or tooltip_to_draw
+  +    tooltip_to_draw = _draw_checkbox(layout.sort_tracks, sort_tracks, t("sort_tracks"), "tip_sort_tracks") or tooltip_to_draw
+  +    tooltip_to_draw = _draw_checkbox(layout.create_folders, create_folders, t("create_folders"), "tip_create_folders") or tooltip_to_draw
+  +    tooltip_to_draw = _draw_checkbox(layout.delete_silent, delete_silent, t("delete_silent"), "tip_delete_silent") or tooltip_to_draw
+  +    
+  +    gfx.r, gfx.g, gfx.b = 0.2, 0.2, 0.2
+  +    gfx.line(30, 215, 290, 215)
+   
+  -    gfx.setfont(1, ui_font, 10)
+  -    gfx.r, gfx.g, gfx.b = 0.78, 0.78, 0.78
+  -    gfx.x, gfx.y = en.radio_x + 12, en.radio_y - 7
+  -    gfx.drawstr("EN")
+  -    gfx.x, gfx.y = pt.radio_x + 12, pt.radio_y - 7
+  -    gfx.drawstr("PT")
+  -    gfx.r, gfx.g, gfx.b = 0.27, 0.27, 0.27
+  -    gfx.circle(en.radio_x, en.radio_y, en.radio_r, 0, 1)
+  -    gfx.circle(pt.radio_x, pt.radio_y, pt.radio_r, 0, 1)
+  -    if lang == "en" then
+  -      gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+  -      gfx.circle(en.radio_x, en.radio_y, en.radio_r - 2, 1, 1)
+  -    else
+  -      gfx.r, gfx.g, gfx.b = 0.53, 0.0, 0.08
+  -      gfx.circle(pt.radio_x, pt.radio_y, pt.radio_r - 2, 1, 1)
+  -    end
+  +    gfx.setfont(1, ui_font, 11)
+  ... (634 lines truncated)
+  @@ -2526,8 +2241,7 @@ local function update_gui()
+  -          analysis_mode = "detailed"
+  -          return "redraw"
+  +                    return "redraw"
+           end
+   
+           -- Clique nos botões de Rádio do Backend
+  +613 -899
+[full diff: rtk git diff --no-compact]
