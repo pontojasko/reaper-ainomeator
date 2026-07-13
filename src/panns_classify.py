@@ -473,6 +473,12 @@ def _run_inference(audio_batch):
                     err_msg = str(e)
                 except UnicodeDecodeError:
                     err_msg = repr(e)
+                
+                # If it's an Out Of Memory error, raise it so the caller can reduce batch size
+                err_lower = err_msg.lower()
+                if "memory" in err_lower or "allocate" in err_lower or "oom" in err_lower:
+                    raise e
+                
                 print(f"  [PANNs] DirectML falhou em runtime ({type(e).__name__}: {err_msg}). "
                       f"Desligando GPU e usando CPU pro resto da sessao "
                       f"(provavelmente alguma operacao do modelo nao suportada pelo torch-directml).", flush=True)
@@ -586,17 +592,28 @@ def classify_many_with_panns(audio_inputs, output_language="pt"):
             batch[i, :a.shape[0]] = a
             valid_mask[i] = True
 
-    try:
-        CHUNK_SIZE = 2
-        clipwise_output_list = []
-        for i in range(0, batch.shape[0], CHUNK_SIZE):
-            chunk = batch[i : i + CHUNK_SIZE]
+    clipwise_output_list = []
+    chunk_size = batch.shape[0]  # Try processing the whole batch to maximize GPU usage!
+    i = 0
+    while i < batch.shape[0]:
+        chunk = batch[i : i + chunk_size]
+        try:
             chunk_out = _run_inference(chunk)
             clipwise_output_list.append(chunk_out)
-        clipwise_output = np.concatenate(clipwise_output_list, axis=0) if clipwise_output_list else np.empty((0, 527))
-    except Exception as e:
-        err = f"{type(e).__name__}: {e}"
-        return [{"error": load_errors.get(i, err)} for i in range(len(audio_inputs))]
+            i += chunk_size
+        except RuntimeError as e:
+            err_lower = str(e).lower()
+            if ("memory" in err_lower or "allocate" in err_lower or "oom" in err_lower) and chunk_size > 1:
+                chunk_size = chunk_size // 2
+                print(f"  [PANNs] DirectML/GPU OOM. Reduzindo lote para {chunk_size} faixas simultaneas...", flush=True)
+            else:
+                err = f"{type(e).__name__}: {e}"
+                return [{"error": load_errors.get(idx, err)} for idx in range(len(audio_inputs))]
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
+            return [{"error": load_errors.get(idx, err)} for idx in range(len(audio_inputs))]
+
+    clipwise_output = np.concatenate(clipwise_output_list, axis=0) if clipwise_output_list else np.empty((0, 527))
 
     results = []
     for i in range(len(audio_inputs)):
