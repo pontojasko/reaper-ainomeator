@@ -244,11 +244,38 @@ local strings = {
   }
 }
 
+local T
+local function _update_T()
+  T = strings[lang] or strings["en"]
+end
+_update_T()
+
 local function t(key)
-  return strings[lang][key] or key
+  return (T and T[key]) or (strings["en"] and strings["en"][key]) or key
 end
  -- "config", "analyzing", "completed", "error"
-local gui_logs = {}
+local LOG_MAX = 500
+local _log_buf = {}
+local _log_head = 1  -- próxima posição de escrita (circular)
+local _log_count = 0
+
+local function push_log(line)
+  _log_buf[_log_head] = line
+  _log_head = (_log_head % LOG_MAX) + 1
+  if _log_count < LOG_MAX then _log_count = _log_count + 1 end
+end
+
+local function iter_logs()  -- iterador em ordem cronológica
+  local tail = (_log_head - _log_count - 1 + LOG_MAX) % LOG_MAX + 1
+  local i = 0
+  return function()
+    if i >= _log_count then return nil end
+    local idx = (tail + i - 1) % LOG_MAX + 1
+    i = i + 1
+    return _log_buf[idx]
+  end
+end
+
 local DEBUG = false
 local parse_log_progress
 local show_text_log = false
@@ -257,13 +284,10 @@ local cancel_path = ""
 local function log(msg)
   local msg_str = tostring(msg)
   for line in string.gmatch(msg_str .. "\n", "(.-)\n") do
-    table.insert(gui_logs, line)
+    push_log(line)
   end
   if parse_log_progress then
     parse_log_progress(msg_str)
-  end
-  while #gui_logs > 500 do
-    table.remove(gui_logs, 1)
   end
   if DEBUG then
     reaper.ShowConsoleMsg(msg_str .. "\n")
@@ -1476,51 +1500,57 @@ local function start_analysis()
 
   end
 
+  local _last_poll_time = 0
   poll = function()
     if not script_running then
       return
     end
 
-    local current_size = file_size(log_path)
-    if current_size > log_read_pos then
-      local lf = io.open(log_path, "rb")
-      if lf then
-        lf:seek("set", log_read_pos)
-        local new_content = lf:read("*a")
-        lf:close()
-        log_read_pos = current_size
-        if new_content and new_content ~= "" then
-          new_content = new_content:gsub("\r\n", "\n"):gsub("\r", "\n")
-          log(new_content)
+    local now = reaper.time_precise()
+    if now - _last_poll_time >= 0.25 then
+      _last_poll_time = now
+
+      local current_size = file_size(log_path)
+      if current_size > log_read_pos then
+        local lf = io.open(log_path, "rb")
+        if lf then
+          lf:seek("set", log_read_pos)
+          local new_content = lf:read("*a")
+          lf:close()
+          log_read_pos = current_size
+          if new_content and new_content ~= "" then
+            new_content = new_content:gsub("\r\n", "\n"):gsub("\r", "\n")
+            log(new_content)
+          end
         end
       end
-    end
 
-    if file_exists(done_path) then
-      local lf = io.open(log_path, "rb")
-      if lf then
-        lf:seek("set", log_read_pos)
-        local tail = lf:read("*a")
-        lf:close()
-        if tail and tail ~= "" then
-          log(tail:gsub("\r\n", "\n"):gsub("\r", "\n"))
+      if file_exists(done_path) then
+        local lf = io.open(log_path, "rb")
+        if lf then
+          lf:seek("set", log_read_pos)
+          local tail = lf:read("*a")
+          lf:close()
+          if tail and tail ~= "" then
+            log(tail:gsub("\r\n", "\n"):gsub("\r", "\n"))
+          end
         end
+        apply_results()
+        gui_state = "completed"
+        return
       end
-      apply_results()
-      gui_state = "completed"
-      return
-    end
 
-    if reaper.time_precise() - poll_start > TIMEOUT_SEC then
-      local err_msg = string.format("\n[TIMEOUT] Processo nao concluiu em %ds. Verifique o log em:\n  %s",
-        TIMEOUT_SEC, log_path)
-      log(err_msg)
-      gui_state = "error"
-      reaper.MB(
-        string.format("Timeout: o processo demorou mais de %d segundos.\n\nVerifique o log completo em:\n%s",
-          TIMEOUT_SEC, log_path),
-        "AiNOMEATOR", 0)
-      return
+      if reaper.time_precise() - poll_start > TIMEOUT_SEC then
+        local err_msg = string.format("\n[TIMEOUT] Processo nao concluiu em %ds. Verifique o log em:\n  %s",
+          TIMEOUT_SEC, log_path)
+        log(err_msg)
+        gui_state = "error"
+        reaper.MB(
+          string.format("Timeout: o processo demorou mais de %d segundos.\n\nVerifique o log completo em:\n%s",
+            TIMEOUT_SEC, log_path),
+          "AiNOMEATOR", 0)
+        return
+      end
     end
 
     reaper.defer(poll)
@@ -1660,6 +1690,7 @@ local function set_language(new_lang)
   end
 
   lang = new_lang
+  _update_T()
   reaper.SetExtState("AiNOMEATOR", "language", new_lang, true)
   refresh_language_labels()
   return true
@@ -1703,7 +1734,7 @@ local function draw_logs(x, y, w, h)
   
   -- Prepara as linhas formatadas (com quebra se passarem de w)
   local formatted_lines = {}
-  for _, raw_line in ipairs(gui_logs) do
+  for raw_line in iter_logs() do
     local line = raw_line:gsub("\t", "    ")
     local line_w, _ = gfx.measurestr(line)
     if line_w <= w then
@@ -2737,11 +2768,14 @@ local function update_gui()
       -- Clique no botao de copiar logs
       local btn = layout.copy_logs
       if in_rect(btn.x, btn.y, btn.w, btn.h) then
+        local logs_arr = {}
+        for l in iter_logs() do table.insert(logs_arr, l) end
+        local logs_str = table.concat(logs_arr, "\n")
         if reaper.CF_SetClipboard then
-          reaper.CF_SetClipboard(table.concat(gui_logs, "\n"))
+          reaper.CF_SetClipboard(logs_str)
           reaper.MB(t("msg_copied"), "AiNOMEATOR", 0)
         else
-          reaper.ShowConsoleMsg(table.concat(gui_logs, "\n") .. "\n")
+          reaper.ShowConsoleMsg(logs_str .. "\n")
           reaper.MB(t("msg_sent_console"), "AiNOMEATOR", 0)
         end
       end
