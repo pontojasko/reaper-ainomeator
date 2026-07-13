@@ -1266,38 +1266,63 @@ local function start_analysis()
 
     if create_folders then
       log("› grouping tracks into instrument folders...")
+      
+      -- Conta quantas tracks existem em cada categoria
+      local cat_counts = {}
+      for tr, cat in pairs(track_categories) do
+        if cat and cat ~= "" then
+          cat_counts[cat] = (cat_counts[cat] or 0) + 1
+        end
+      end
+
       local i = 0
       local current_folder = ""
+      local in_folder = false
+      
       while i < reaper.CountTracks(0) do
         local tr = reaper.GetTrack(0, i)
         local cat = track_categories[tr]
+        
         if cat and cat ~= "" and cat ~= current_folder and cat ~= "pastas" and cat ~= "efeitos" and cat ~= "outro" then
-          reaper.InsertTrackAtIndex(i, true)
-          local folder_tr = reaper.GetTrack(0, i)
-          local folder_name = cat:upper()
-          reaper.GetSetMediaTrackInfo_String(folder_tr, "P_NAME", folder_name, true)
-          reaper.SetMediaTrackInfo_Value(folder_tr, "I_FOLDERDEPTH", 1)
           
-          local col = config_colors["pastas"]
-          if col then
-            reaper.SetTrackColor(folder_tr, reaper.ColorToNative(col[1], col[2], col[3]) | 0x1000000)
+          -- Fecha a pasta anterior se estavamos dentro de uma
+          if in_folder and i > 0 then
+            local last_tr = reaper.GetTrack(0, i - 1)
+            local current_depth = reaper.GetMediaTrackInfo_Value(last_tr, "I_FOLDERDEPTH")
+            reaper.SetMediaTrackInfo_Value(last_tr, "I_FOLDERDEPTH", current_depth - 1)
+            in_folder = false
           end
           
           current_folder = cat
           
-          if i > 0 then
-            local last_tr = reaper.GetTrack(0, i - 1)
-            local current_depth = reaper.GetMediaTrackInfo_Value(last_tr, "I_FOLDERDEPTH")
-            reaper.SetMediaTrackInfo_Value(last_tr, "I_FOLDERDEPTH", current_depth - 1)
+          -- Cria nova pasta apenas se houver 2 ou mais tracks
+          if cat_counts[cat] and cat_counts[cat] >= 2 then
+            reaper.InsertTrackAtIndex(i, true)
+            local folder_tr = reaper.GetTrack(0, i)
+            local disp_name = cat_names[cat] and cat_names[cat][lang] or cat
+            local folder_name = disp_name:upper()
+            reaper.GetSetMediaTrackInfo_String(folder_tr, "P_NAME", folder_name, true)
+            reaper.SetMediaTrackInfo_Value(folder_tr, "I_FOLDERDEPTH", 1)
+            
+            local col = config_colors["pastas"]
+            if col then
+              reaper.SetTrackColor(folder_tr, reaper.ColorToNative(col[1], col[2], col[3]) | 0x1000000)
+            end
+            
+            in_folder = true
           end
         end
         i = i + 1
       end
-      local final_total = reaper.CountTracks(0)
-      if final_total > 0 and current_folder ~= "" then
-        local last_tr = reaper.GetTrack(0, final_total - 1)
-        local current_depth = reaper.GetMediaTrackInfo_Value(last_tr, "I_FOLDERDEPTH")
-        reaper.SetMediaTrackInfo_Value(last_tr, "I_FOLDERDEPTH", current_depth - 1)
+      
+      -- Fecha a ultima pasta se ainda estiver aberta no final do projeto
+      if in_folder then
+        local final_total = reaper.CountTracks(0)
+        if final_total > 0 then
+          local last_tr = reaper.GetTrack(0, final_total - 1)
+          local current_depth = reaper.GetMediaTrackInfo_Value(last_tr, "I_FOLDERDEPTH")
+          reaper.SetMediaTrackInfo_Value(last_tr, "I_FOLDERDEPTH", current_depth - 1)
+        end
       end
     end
 
@@ -2287,7 +2312,7 @@ local function draw_gui()
     local credit_text = "by jasko"
     local cr_w, cr_h = gfx.measurestr(credit_text)
     local cr_x = (gfx.w - cr_w) / 2
-    local cr_y = show_advanced and 720 or COMPACT_CREDITS_Y
+    local cr_y = show_advanced and 760 or COMPACT_CREDITS_Y
     gfx.r, gfx.g, gfx.b = 1.0, 1.0, 1.0
     gfx.x = cr_x
     gfx.y = cr_y

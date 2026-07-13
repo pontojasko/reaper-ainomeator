@@ -750,9 +750,9 @@ def main():
         client = genai.Client(api_key=api_key)
     else:
         if args.output_language == "pt":
-            print(f"[batch_rename] Backend: {args.backend} (local, sem API)")
+            print(f"[batch_rename] Backend: {args.backend} (local, sem API) [{time.time() - t_start_global:.2f}s]")
         else:
-            print(f"[batch_rename] Backend: {args.backend} (local, no API)")
+            print(f"[batch_rename] Backend: {args.backend} (local, no API) [{time.time() - t_start_global:.2f}s]")
 
     if not os.path.isfile(args.manifest_path):
         if args.output_language == "pt":
@@ -769,9 +769,9 @@ def main():
         api_available, working_models = check_api_availability(client, initial_models, output_language=args.output_language)
         if not api_available:
             if args.output_language == "pt":
-                print("\n[AVISO] Verificacao inicial falhou. Ativando fallback universal (sem IA) para todos os passos.")
+                print(f"\n[AVISO] Verificacao inicial falhou. Ativando fallback universal (sem IA) para todos os passos. [{time.time() - t_start_global:.2f}s]")
             else:
-                print("\n[WARNING] Initial check failed. Activating universal fallback (no AI) for all steps.")
+                print(f"\n[WARNING] Initial check failed. Activating universal fallback (no AI) for all steps. [{time.time() - t_start_global:.2f}s]")
         shared_models = working_models  # plain list
     else:
         api_available = True
@@ -783,9 +783,9 @@ def main():
             handle_color_generation(client, shared_models, args.color_prompt, args.config_path, output_language=args.output_language)
         else:
             if args.output_language == "pt":
-                print("\n[batch_rename] Pulando geracao de cores customizada (API indisponivel ou backend local). Usando paleta existente.")
+                print(f"\n[batch_rename] Pulando geracao de cores customizada (API indisponivel ou backend local). Usando paleta existente. [{time.time() - t_start_global:.2f}s]")
             else:
-                print("\n[batch_rename] Skipping custom color generation (API unavailable or local backend). Using existing palette.")
+                print(f"\n[batch_rename] Skipping custom color generation (API unavailable or local backend). Using existing palette. [{time.time() - t_start_global:.2f}s]")
 
     entries = read_manifest(args.manifest_path)
     total = len(entries)
@@ -796,14 +796,14 @@ def main():
         Path(args.result_path).touch()
         return
 
-    print(f"\n[ analysis : {args.backend} {'local' if use_local_backend else 'cloud'} inference | {total} track(s) ]")
+    print(f"\n[ analysis : {args.backend} {'local' if use_local_backend else 'cloud'} inference | {total} track(s) ] [{time.time() - t_start_global:.2f}s]")
 
     # --- Pre-load PANNs model ---
     if args.backend in ["panns", "hybrid_heuristic", "hybrid_chaining"]:
         if args.output_language == "pt":
-            print("  [!] Pre-carregando modelo PANNs (isso pode demorar um pouco na primeira vez)...", flush=True)
+            print(f"  [!] Pre-carregando modelo PANNs (isso pode demorar um pouco na primeira vez)... [{time.time() - t_start_global:.2f}s]", flush=True)
         else:
-            print("  [!] Pre-loading PANNs model (this may take a while on first run)...", flush=True)
+            print(f"  [!] Pre-loading PANNs model (this may take a while on first run)... [{time.time() - t_start_global:.2f}s]", flush=True)
         try:
             from panns_classify import _ensure_ready
             _ensure_ready()
@@ -958,7 +958,7 @@ def main():
                     f"{_sanitize(r.get('instrument'))}\t{r.get('confidence', '')}\t\n"
                 )
 
-    elapsed = time.time() - t0
+    elapsed = time.time() - t_start_global
     print(f"› analysis completed in {elapsed:.1f}s")
 
     # Cria o arquivo sentinela APOS gravar o result.tsv por completo.
