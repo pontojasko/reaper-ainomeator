@@ -2713,7 +2713,7 @@ local function run_gui_loop()
     
     only_selected = (only_selected == true)
 
-    workers = tonumber(sanitize_thread_input(inputs[1].val)) or 1
+    workers = tonumber(sanitize_numeric_input(inputs[1].val, 20)) or 1
     if workers < 1 then workers = 1
     elseif workers > 20 then workers = 20 end
     inputs[1].val = tostring(workers)
@@ -2721,7 +2721,7 @@ local function run_gui_loop()
       reaper.SetExtState("AiNOMEATOR", "panns_workers", inputs[1].val, true)
     end
 
-    local local_threads = tonumber(sanitize_local_thread_input(inputs[3].val)) or 1
+    local local_threads = tonumber(sanitize_numeric_input(inputs[3].val, 16)) or 1
     if local_threads < 1 then local_threads = 1
     elseif local_threads > 16 then local_threads = 16 end
     inputs[3].val = tostring(local_threads)
